@@ -1,0 +1,102 @@
+import json
+from dataclasses import dataclass, field
+from pydantic import BaseModel, Field
+from app.llm.base import LLMProvider
+from app.pipeline.llm_utils import generate_validated, LLMOutputValidationError
+from app.pipeline.result_sampling import sample_for_llm
+
+
+SYSTEM_PROMPT = """You are a SOC analysis agent. Given Splunk query results and context, perform deep security analysis.
+
+Rules:
+- Return a JSON object with:
+  - "anomalies": array of objects with "description" (string), "severity" ("low"|"medium"|"high"|"critical"), "evidence" (string — specific data points)
+  - "patterns": array of objects with "description" (string), "confidence" (float 0.0-1.0), "affected_entities" (array of strings)
+  - "summary": string — 2-3 sentence analytical summary focusing on security implications
+- Look for: unusual spikes, outlier values, suspicious patterns, known attack signatures, geographic anomalies, time-based patterns
+- If results are empty or benign, return empty anomalies/patterns arrays with a summary stating no issues found
+- Be specific — cite actual values from the data
+- Output ONLY valid JSON, no markdown fences"""
+
+
+class _AnomalySchema(BaseModel):
+    description: str = ""
+    severity: str = "medium"
+    evidence: str = ""
+
+
+class _PatternSchema(BaseModel):
+    description: str = ""
+    confidence: float = 0.0
+    affected_entities: list[str] = Field(default_factory=list)
+
+
+class _AnalysisSchema(BaseModel):
+    anomalies: list[_AnomalySchema] = Field(default_factory=list)
+    patterns: list[_PatternSchema] = Field(default_factory=list)
+    summary: str = ""
+
+
+@dataclass
+class Anomaly:
+    description: str
+    severity: str
+    evidence: str
+
+
+@dataclass
+class Pattern:
+    description: str
+    confidence: float
+    affected_entities: list[str]
+
+
+@dataclass
+class AnalysisResult:
+    anomalies: list[Anomaly]
+    patterns: list[Pattern]
+    summary: str
+
+
+class AnalysisAgent:
+    def __init__(self, llm: LLMProvider):
+        self._llm = llm
+
+    async def analyze(
+        self,
+        query: str,
+        spl: str,
+        results: list[dict],
+    ) -> AnalysisResult:
+        """Perform deep analysis on query results."""
+        sample, sketch = sample_for_llm(results, k=60) if results else ([], {})
+        results_str = json.dumps(sample, indent=2) if sample else "No results."
+        if sketch.get("total_rows", 0) > len(sample):
+            results_str += f"\n\n(Showing {sketch['sampled']} of {sketch['total_rows']} total rows. Fields seen: {', '.join(sketch['fields'])})"
+
+        user_prompt = f"""Original question: {query}
+
+SPL query: {spl}
+
+Results:
+{results_str}"""
+
+        try:
+            data = await generate_validated(
+                llm=self._llm,
+                system_prompt=SYSTEM_PROMPT,
+                history=[],
+                user_prompt=user_prompt,
+                model_class=_AnalysisSchema,
+            )
+        except LLMOutputValidationError:
+            return AnalysisResult(anomalies=[], patterns=[], summary="Invalid analysis — could not be parsed.")
+
+        return AnalysisResult(
+            anomalies=[Anomaly(description=a.description, severity=a.severity, evidence=a.evidence) for a in data.anomalies],
+            patterns=[Pattern(description=p.description, confidence=p.confidence, affected_entities=p.affected_entities) for p in data.patterns],
+            summary=data.summary,
+        )
+
+from app.pipeline.prompt_registry import register as _reg_prompt
+_reg_prompt("analysis_agent", SYSTEM_PROMPT)

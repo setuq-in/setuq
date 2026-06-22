@@ -1,0 +1,101 @@
+store_id,store_name,city,country,store_type
+S001,Chocolate Store 1,New York,Canada,Retail
+S002,Chocolate Store 2,Melbourne,Canada,Mall
+S003,Chocolate Store 3,Berlin,France,Mall
+S004,Chocolate Store 4,Paris,UK,Airport
+S005,Chocolate Store 5,Sydney,USA,Online
+S006,Chocolate Store 6,Toronto,Canada,Online
+S007,Chocolate Store 7,Sydney,France,Mall
+S008,Chocolate Store 8,Paris,UK,Mall
+S009,Chocolate Store 9,Paris,France,Online
+S010,Chocolate Store 10,Toronto,UK,Retail
+S011,Chocolate Store 11,New York,USA,Retail
+S012,Chocolate Store 12,London,France,Mall
+S013,Chocolate Store 13,Melbourne,France,Retail
+S014,Chocolate Store 14,London,Australia,Airport
+S015,Chocolate Store 15,Paris,Canada,Airport
+S016,Chocolate Store 16,New York,USA,Mall
+S017,Chocolate Store 17,Melbourne,UK,Airport
+S018,Chocolate Store 18,London,Germany,Retail
+S019,Chocolate Store 19,New York,Germany,Airport
+S020,Chocolate Store 20,Toronto,Germany,Retail
+S021,Chocolate Store 21,Melbourne,USA,Mall
+S022,Chocolate Store 22,Berlin,USA,Retail
+S023,Chocolate Store 23,London,Canada,Retail
+S024,Chocolate Store 24,Paris,France,Online
+S025,Chocolate Store 25,Sydney,USA,Airport
+S026,Chocolate Store 26,London,USA,Online
+S027,Chocolate Store 27,Sydney,Germany,Airport
+S028,Chocolate Store 28,London,Australia,Mall
+S029,Chocolate Store 29,Melbourne,Australia,Online
+S030,Chocolate Store 30,New York,UK,Airport
+S031,Chocolate Store 31,Paris,Australia,Retail
+S032,Chocolate Store 32,Paris,UK,Mall
+S033,Chocolate Store 33,Toronto,Australia,Retail
+S034,Chocolate Store 34,Paris,Canada,Mall
+S035,Chocolate Store 35,Melbourne,USA,Mall
+S036,Chocolate Store 36,Berlin,Australia,Mall
+S037,Chocolate Store 37,London,Canada,Online
+S038,Chocolate Store 38,Melbourne,USA,Mall
+S039,Chocolate Store 39,New York,UK,Mall
+S040,Chocolate Store 40,Melbourne,Canada,Airport
+S041,Chocolate Store 41,London,Germany,Airport
+S042,Chocolate Store 42,Paris,USA,Online
+S043,Chocolate Store 43,London,Germany,Airport
+S044,Chocolate Store 44,Paris,UK,Airport
+S045,Chocolate Store 45,Sydney,Canada,Online
+S046,Chocolate Store 46,London,Canada,Mall
+S047,Chocolate Store 47,New York,UK,Mall
+S048,Chocolate Store 48,Toronto,Canada,Airport
+S049,Chocolate Store 49,Berlin,France,Mall
+S050,Chocolate Store 50,New York,Canada,Airport
+S051,Chocolate Store 51,Toronto,Australia,Retail
+S052,Chocolate Store 52,Toronto,France,Retail
+S053,Chocolate Store 53,New York,USA,Retail
+S054,Chocolate Store 54,London,Canada,Online
+S055,Chocolate Store 55,New York,France,Retail
+S056,Chocolate Store 56,Melbourne,Germany,Online
+S057,Chocolate Store 57,London,UK,Airport
+S058,Chocolate Store 58,Paris,USA,Airport
+S059,Chocolate Store 59,New York,Germany,Airport
+S060,Chocolate Store 60,Paris,Australia,Airport
+S061,Chocolate Store 61,London,France,Online
+S062,Chocolate Store 62,Toronto,Canada,Airport
+S063,Chocolate Store 63,Sydney,Australia,Retail
+S064,Chocolate Store 64,Berlin,Germany,Airport
+S065,Chocolate Store 65,New York,Australia,Retail
+S066,Chocolate Store 66,Sydney,USA,Online
+S067,Chocolate Store 67,Berlin,UK,Online
+S068,Chocolate Store 68,Melbourne,UK,Online
+S069,Chocolate Store 69,London,France,Retail
+S070,Chocolate Store 70,Toronto,Canada,Online
+S071,Chocolate Store 71,Sydney,Canada,Online
+S072,Chocolate Store 72,New York,France,Mall
+S073,Chocolate Store 73,Toronto,UK,Online
+S074,Chocolate Store 74,Sydney,USA,Online
+S075,Chocolate Store 75,Sydney,France,Airport
+S076,Chocolate Store 76,Berlin,Germany,Retail
+S077,Chocolate Store 77,Paris,UK,Airport
+S078,Chocolate Store 78,London,UK,Airport
+S079,Chocolate Store 79,New York,USA,Mall
+S080,Chocolate Store 80,Sydney,Australia,Online
+S081,Chocolate Store 81,Melbourne,Canada,Airport
+S082,Chocolate Store 82,Toronto,Australia,Mall
+S083,Chocolate Store 83,Toronto,France,Mall
+S084,Chocolate Store 84,Toronto,France,Airport
+S085,Chocolate Store 85,Melbourne,USA,Online
+S086,Chocolate Store 86,Berlin,Australia,Mall
+S087,Chocolate Store 87,Paris,Germany,Airport
+S088,Chocolate Store 88,Toronto,USA,Retail
+S089,Chocolate Store 89,Paris,Canada,Online
+S090,Chocolate Store 90,Toronto,France,Online
+S091,Chocolate Store 91,Sydney,UK,Online
+S092,Chocolate Store 92,London,UK,Airport
+S093,Chocolate Store 93,Sydney,UK,Airport
+S094,Chocolate Store 94,Paris,Germany,Airport
+S095,Chocolate Store 95,Toronto,Canada,Mall
+S096,Chocolate Store 96,Berlin,UK,Mall
+S097,Chocolate Store 97,Toronto,Canada,Mall
+S098,Chocolate Store 98,New York,Australia,Online
+S099,Chocolate Store 99,Toronto,Australia,Mall
+S100,Chocolate Store 100,Berlin,France,Airport

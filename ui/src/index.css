@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+@theme {
+  --color-splunk-bg-main: #0b0c0e;
+  --color-splunk-bg-sidebar: #1a1c20;
+  --color-splunk-bg-card: #232429;
+  --color-splunk-bg-hover: #2d3036;
+  --color-splunk-mint: #4FA484;
+  --color-splunk-blue: #006D9C;
+  --color-splunk-red: #DC4E41;
+  --color-splunk-orange: #F25C22;
+  --color-splunk-border: #2e303a;
+  --color-splunk-text-main: #f3f4f6;
+  --color-splunk-text-muted: #9ca3af;
+
+  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-splunk-bg-main);
+  color: var(--color-splunk-text-main);
+  font-family: var(--font-sans);
+}
+
+/* Custom Scrollbar for modern feel */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-splunk-bg-main);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-splunk-border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-splunk-bg-card);
+}
