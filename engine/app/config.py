@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     SESSION_MAX_TURNS: int = 10
     GUARDRAIL_MAX_TIME_RANGE_DAYS: int = 365
 
+    # YAML files for user-customizable prompts & guardrail rules (override code defaults)
+    PROMPTS_CONFIG_PATH: str = "config/prompts.yaml"
+    GUARDRAILS_CONFIG_PATH: str = "config/guardrails.yaml"
+
     APP_HOST: str = "0.0.0.0"
     APP_PORT: int = 8000
     API_KEY: str = ""  # Empty = auth disabled (dev mode)

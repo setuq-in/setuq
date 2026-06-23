@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,8 +21,9 @@ from app.pipeline.action_suggester import ActionSuggester
 from app.pipeline.analysis_agent import AnalysisAgent
 from app.pipeline.audit_logger import init_audit_logger, get_audit_logger
 from app.pipeline.decision_engine import DecisionEngine
-from app.pipeline.guardrails import QueryGuardrail
+from app.pipeline.guardrails import QueryGuardrail, load_guardrail_config
 from app.pipeline.planner import PlannerAgent
+from app.pipeline import prompt_registry
 from app.pipeline.schema_manager import SchemaManager
 from app.pipeline.redis_session_manager import create_session_manager
 from app.pipeline.spl_generator import SPLGenerator
@@ -75,6 +77,11 @@ async def lifespan(app: FastAPI):
         _splunk_client = SplunkClient(settings)
     session_manager = create_session_manager(settings, max_turns=settings.SESSION_MAX_TURNS)
     session_manager.start_cleanup_task()
+    # Apply user prompt overrides (YAML) before agents serve requests; agents
+    # resolve their system prompt via prompt_registry.get() at call time.
+    n_prompts = prompt_registry.load_overrides(settings.PROMPTS_CONFIG_PATH)
+    if n_prompts:
+        logging.getLogger("setuq.main").info("Loaded %d prompt override(s) from %s", n_prompts, settings.PROMPTS_CONFIG_PATH)
     spl_generator = SPLGenerator(llm=llm)
     summarizer = Summarizer(llm=llm)
     action_suggester = ActionSuggester(llm=llm)
@@ -84,11 +91,13 @@ async def lifespan(app: FastAPI):
     audit_logger = init_audit_logger(settings.AUDIT_LOG_PATH)
     audit_logger.attach_loop(asyncio.get_running_loop())
 
-    # Build guardrail with known indexes from schema
+    # Build guardrail with known indexes from schema + user-customizable rules (YAML)
     known_indexes = list(_schema_manager.get_schema().get("indexes", {}).keys())
+    gconfig = load_guardrail_config(settings.GUARDRAILS_CONFIG_PATH)
     guardrail = QueryGuardrail(
         known_indexes=known_indexes,
-        max_time_range_days=settings.GUARDRAIL_MAX_TIME_RANGE_DAYS,
+        max_time_range_days=gconfig.get("max_time_range_days", settings.GUARDRAIL_MAX_TIME_RANGE_DAYS),
+        resource_heavy_patterns=gconfig.get("resource_heavy_patterns"),
     )
     # Keep guardrail in sync whenever schema refreshes (reactive or scheduled)
     _schema_manager._on_change = guardrail.update_known_indexes

@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Optional
 from pydantic import BaseModel, model_validator
 from app.llm.base import LLMProvider
+from app.pipeline import prompt_registry
 from app.pipeline.llm_utils import generate_validated, LLMOutputValidationError
 
 
@@ -74,7 +75,7 @@ class PlannerAgent:
         try:
             data = await generate_validated(
                 llm=self._llm,
-                system_prompt=SYSTEM_PROMPT,
+                system_prompt=prompt_registry.resolve("planner", SYSTEM_PROMPT),
                 history=[],
                 user_prompt=user_prompt,
                 model_class=_PlanSchema,
@@ -98,5 +99,4 @@ class PlannerAgent:
             reasoning=data.reasoning,
         )
 
-from app.pipeline.prompt_registry import register as _reg_prompt
-_reg_prompt("planner", SYSTEM_PROMPT)
+prompt_registry.register("planner", SYSTEM_PROMPT)
