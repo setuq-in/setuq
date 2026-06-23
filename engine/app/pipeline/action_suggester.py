@@ -2,6 +2,7 @@ import json
 from dataclasses import dataclass
 from pydantic import BaseModel, Field, model_validator
 from app.llm.base import LLMProvider
+from app.pipeline import prompt_registry
 from app.pipeline.llm_utils import generate_validated, LLMOutputValidationError
 from app.pipeline.result_sampling import sample_for_llm
 
@@ -74,7 +75,7 @@ Summary: {summary}"""
         try:
             data = await generate_validated(
                 llm=self._llm,
-                system_prompt=SYSTEM_PROMPT,
+                system_prompt=prompt_registry.resolve("action_suggester", SYSTEM_PROMPT),
                 history=[],
                 user_prompt=user_prompt,
                 model_class=_ActionsSchema,
@@ -93,5 +94,4 @@ Summary: {summary}"""
             for a in data.actions
         ]
 
-from app.pipeline.prompt_registry import register as _reg_prompt
-_reg_prompt("action_suggester", SYSTEM_PROMPT)
+prompt_registry.register("action_suggester", SYSTEM_PROMPT)

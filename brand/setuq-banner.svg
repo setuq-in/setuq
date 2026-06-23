@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="320" viewBox="0 0 1280 320" fill="none" role="img" aria-label="setuq — sovereign, closed-loop SOC agent">
+  <defs>
+    <linearGradient id="sq" x1="120" y1="96" x2="240" y2="216" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7e14ff"/>
+      <stop offset="1" stop-color="#47bfff"/>
+    </linearGradient>
+    <linearGradient id="sqt" x1="330" y1="120" x2="760" y2="210" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#a06bff"/>
+      <stop offset="1" stop-color="#47bfff"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#7e14ff" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#7e14ff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1280" height="320" fill="#0b0c0e"/>
+  <rect width="1280" height="320" fill="url(#glow)" opacity="0.6"/>
+  <!-- mark, scaled x3 from 64-base, placed at (96,80) -->
+  <g transform="translate(96 80) scale(3)">
+    <path d="M39.11 10.13 A23 23 0 1 1 24.89 10.13" fill="none" stroke="url(#sq)" stroke-width="6" stroke-linecap="round"/>
+    <path d="M33.45 7.35 26.59 15.36 23.19 4.90 Z" fill="#47bfff"/>
+    <path d="M23 27 H41 V37 Q41 42.5 32 46 Q23 42.5 23 37 Z" fill="url(#sq)"/>
+    <path d="M27.6 35.4 30.7 38.5 37 30.8" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <text x="330" y="168" font-family="Inter, 'Segoe UI', system-ui, -apple-system, sans-serif" font-size="104" font-weight="800" letter-spacing="-4" fill="url(#sqt)">setuq</text>
+  <text x="336" y="214" font-family="Inter, 'Segoe UI', system-ui, sans-serif" font-size="30" font-weight="600" fill="#e5e7eb">Sovereign, closed-loop SOC agent.</text>
+  <text x="336" y="252" font-family="Inter, 'Segoe UI', system-ui, sans-serif" font-size="24" font-weight="400" fill="#9ca3af">Splunk today, every SIEM tomorrow. On-prem if you need it.</text>
+</svg>

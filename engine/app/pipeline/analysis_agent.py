@@ -2,6 +2,7 @@ import json
 from dataclasses import dataclass, field
 from pydantic import BaseModel, Field
 from app.llm.base import LLMProvider
+from app.pipeline import prompt_registry
 from app.pipeline.llm_utils import generate_validated, LLMOutputValidationError
 from app.pipeline.result_sampling import sample_for_llm
 
@@ -84,7 +85,7 @@ Results:
         try:
             data = await generate_validated(
                 llm=self._llm,
-                system_prompt=SYSTEM_PROMPT,
+                system_prompt=prompt_registry.resolve("analysis_agent", SYSTEM_PROMPT),
                 history=[],
                 user_prompt=user_prompt,
                 model_class=_AnalysisSchema,
@@ -98,5 +99,4 @@ Results:
             summary=data.summary,
         )
 
-from app.pipeline.prompt_registry import register as _reg_prompt
-_reg_prompt("analysis_agent", SYSTEM_PROMPT)
+prompt_registry.register("analysis_agent", SYSTEM_PROMPT)

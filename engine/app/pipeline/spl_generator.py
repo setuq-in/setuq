@@ -2,6 +2,7 @@ import logging
 import re
 from dataclasses import dataclass
 from app.llm.base import LLMProvider
+from app.pipeline import prompt_registry
 
 _logger = logging.getLogger("setuq.spl_generator")
 
@@ -45,7 +46,9 @@ class SPLGenerator:
 
     async def generate_spl(self, query: str, schema_context: str, history: list[dict] | None = None) -> str:
         """Generate and return only the cleaned SPL string (no explain call)."""
-        system_prompt = f"{SYSTEM_PROMPT_HEAD}\n\n{schema_context}\n\n{SYSTEM_PROMPT_TAIL}"
+        # Literal replace (not str.format) so user-edited prompts can contain
+        # JSON/curly-brace examples without raising KeyError.
+        system_prompt = prompt_registry.resolve("spl_generator", SYSTEM_PROMPT).replace("{schema_context}", schema_context)
         response = await self._llm.generate(
             system_prompt=system_prompt,
             history=history or [],
@@ -58,7 +61,7 @@ class SPLGenerator:
     async def explain(self, spl: str) -> str:
         """Explain an SPL query in plain English."""
         response = await self._llm.generate(
-            system_prompt=EXPLAIN_PROMPT,
+            system_prompt=prompt_registry.resolve("spl_explain", EXPLAIN_PROMPT),
             history=[],
             user_prompt=spl,
         )
@@ -82,5 +85,5 @@ class SPLGenerator:
             cleaned = f"earliest=-24h {cleaned}"
         return cleaned
 
-from app.pipeline.prompt_registry import register as _reg_prompt
-_reg_prompt("spl_generator", SYSTEM_PROMPT)
+prompt_registry.register("spl_generator", SYSTEM_PROMPT)
+prompt_registry.register("spl_explain", EXPLAIN_PROMPT)

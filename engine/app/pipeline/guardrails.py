@@ -1,6 +1,12 @@
+import logging
 import re
 from dataclasses import dataclass
+from pathlib import Path
+
+import yaml
 from opentelemetry import metrics as otel_metrics
+
+_logger = logging.getLogger("setuq.guardrails")
 _meter = otel_metrics.get_meter("setuq.guardrails")
 _violation_counter = _meter.create_counter(
     "guardrail.violations",
@@ -34,10 +40,69 @@ _RESOURCE_HEAVY_PATTERNS = [
 MAX_TIME_RANGE_DAYS = 30
 
 
+def load_guardrail_config(path: str) -> dict:
+    """Load guardrail overrides from a YAML file.
+
+    Best-effort: a missing/empty/malformed file yields an empty dict so callers
+    fall back to code defaults. Recognized keys:
+
+    - ``max_time_range_days`` (int)
+    - ``resource_heavy_patterns``: list of ``{pattern, reason}`` maps, each
+      compiled like the built-in ``_RESOURCE_HEAVY_PATTERNS``. A pattern that
+      fails to compile is skipped (logged), never fatal.
+
+    Returns ``{"max_time_range_days": int?, "resource_heavy_patterns": list?}``
+    with only the keys that were present and valid.
+    """
+    file_path = Path(path)
+    if not file_path.exists():
+        return {}
+    try:
+        content = yaml.safe_load(file_path.read_text())
+    except yaml.YAMLError as exc:
+        _logger.warning("Guardrail config YAML malformed (%s) — using defaults: %s", path, exc)
+        return {}
+    if not isinstance(content, dict):
+        return {}
+
+    config: dict = {}
+    max_days = content.get("max_time_range_days")
+    if isinstance(max_days, int) and max_days > 0:
+        config["max_time_range_days"] = max_days
+
+    raw_patterns = content.get("resource_heavy_patterns")
+    if isinstance(raw_patterns, list):
+        patterns: list[tuple[str, str]] = []
+        for item in raw_patterns:
+            if not isinstance(item, dict):
+                continue
+            pattern = item.get("pattern")
+            reason = item.get("reason", "blocked by guardrail rule")
+            if not isinstance(pattern, str):
+                continue
+            try:
+                re.compile(pattern)
+            except re.error as exc:
+                _logger.warning("Skipping invalid guardrail pattern %r: %s", pattern, exc)
+                continue
+            patterns.append((pattern, str(reason)))
+        config["resource_heavy_patterns"] = patterns
+    return config
+
+
 class QueryGuardrail:
-    def __init__(self, known_indexes: list[str] | None = None, max_time_range_days: int = MAX_TIME_RANGE_DAYS):
+    def __init__(
+        self,
+        known_indexes: list[str] | None = None,
+        max_time_range_days: int = MAX_TIME_RANGE_DAYS,
+        resource_heavy_patterns: list[tuple[str, str]] | None = None,
+    ):
         self._known_indexes = set(known_indexes or [])
         self._max_time_range_days = max_time_range_days
+        # None = use built-in defaults; a (possibly empty) list = full override.
+        self._resource_heavy_patterns = (
+            resource_heavy_patterns if resource_heavy_patterns is not None else _RESOURCE_HEAVY_PATTERNS
+        )
 
     def update_known_indexes(self, indexes: list[str]) -> None:
         self._known_indexes = set(indexes)
@@ -132,7 +197,7 @@ class QueryGuardrail:
 
     def _check_resource_heavy(self, spl: str) -> list[str]:
         violations = []
-        for pattern, reason in _RESOURCE_HEAVY_PATTERNS:
+        for pattern, reason in self._resource_heavy_patterns:
             if re.search(pattern, spl, re.IGNORECASE | re.DOTALL):
                 violations.append(reason)
         return violations

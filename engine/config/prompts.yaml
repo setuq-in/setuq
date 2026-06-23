@@ -1,0 +1,42 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Custom prompt overrides for the Setuq pipeline.
+#
+# Each key under `prompts:` overrides the system prompt of one pipeline agent.
+# Anything you DON'T list keeps its built-in code default — so you only specify
+# what you want to change. Overrides are applied at startup; restart the engine
+# after editing. Each override gets a new version hash (visible in
+# /api/prompts/versions and Langfuse/OTel) so changes stay traceable.
+#
+# Path is configurable via PROMPTS_CONFIG_PATH (default: config/prompts.yaml).
+#
+# Available prompt names (must match exactly — unknown names are ignored):
+#   spl_generator     SPL query generation. MUST contain the literal token
+#                     `{schema_context}` — it is replaced with the live schema.
+#   spl_explain       Plain-English explanation of a generated SPL query.
+#   summarizer        Natural-language summary of query results.
+#   action_suggester  Suggests SOC response actions (expects JSON array output).
+#   analysis_agent    Deep security analysis (expects JSON object output).
+#   planner           Single-step vs multi-step investigation decision.
+#   decision_engine   Confidence-scored recommend/reject/escalate decision.
+#
+# Use YAML block scalars (`|`) to preserve newlines.
+# ─────────────────────────────────────────────────────────────────────────────
+
+prompts: {}
+
+# ── Example: tailor the SPL generator for your environment ──
+#
+# prompts:
+#   spl_generator: |
+#     You are a Splunk SPL query generator for ACME Corp's SOC.
+#
+#     {schema_context}
+#
+#     Rules:
+#     - Output ONLY the raw SPL query, no markdown, no labels.
+#     - Always include an `earliest=` time modifier.
+#     - Prefer our `acme_` indexes when ambiguous.
+#
+#   summarizer: |
+#     You are a SOC analyst summarizing Splunk results in <= 3 sentences.
+#     Lead with the security implication, then the supporting numbers.

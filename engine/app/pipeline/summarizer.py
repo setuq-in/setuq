@@ -1,5 +1,6 @@
 import json
 from app.llm.base import LLMProvider
+from app.pipeline import prompt_registry
 from app.pipeline.result_sampling import sample_for_llm
 
 
@@ -32,11 +33,10 @@ Results:
 {results_str}"""
 
         response = await self._llm.generate(
-            system_prompt=SYSTEM_PROMPT,
+            system_prompt=prompt_registry.resolve("summarizer", SYSTEM_PROMPT),
             history=history or [],
             user_prompt=user_prompt,
         )
         return response.content
 
-from app.pipeline.prompt_registry import register as _reg_prompt
-_reg_prompt("summarizer", SYSTEM_PROMPT)
+prompt_registry.register("summarizer", SYSTEM_PROMPT)

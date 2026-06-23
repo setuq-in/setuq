@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" fill="none" role="img" aria-label="setuq mark">
+  <defs>
+    <linearGradient id="sq" x1="6" y1="6" x2="58" y2="58" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7e14ff"/>
+      <stop offset="1" stop-color="#47bfff"/>
+    </linearGradient>
+  </defs>
+  <!-- closed-loop cycle: execute -> analyze -> decide -> audit -->
+  <path d="M39.11 10.13 A23 23 0 1 1 24.89 10.13" fill="none" stroke="url(#sq)" stroke-width="6" stroke-linecap="round"/>
+  <!-- arrowhead chasing its tail = loop closes -->
+  <path d="M33.45 7.35 26.59 15.36 23.19 4.90 Z" fill="#47bfff"/>
+  <!-- sovereign shield -->
+  <path d="M23 27 H41 V37 Q41 42.5 32 46 Q23 42.5 23 37 Z" fill="url(#sq)"/>
+  <!-- audited / verified -->
+  <path d="M27.6 35.4 30.7 38.5 37 30.8" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

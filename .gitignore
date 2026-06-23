@@ -1,0 +1,27 @@
+# Added by code-review-graph
+.code-review-graph/
+
+# Claude Code per-user state
+.claude/settings.local.json
+.claude/worktrees/
+
+# Git worktrees
+.worktrees/
+__pycache__/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+**/.pytest_cache/
+splunk_export/**
+tests/__pycache__/**
+tests/**/__pycache__/**
+.vscode/
+.github/workflows/
+graphify-out/**
+.agent/**
+.DS_Store
+
+# Env files
+.env
+splunk_metadata/**
+*.code-workspace
