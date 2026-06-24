@@ -10,7 +10,9 @@ from app.observability import get_tracer, hash_query
 from app.llm.harness import init_run_budget, reset_run_budget, BudgetExceeded, get_run_budget_usage
 from app.pipeline.action_suggester import ActionSuggester, ActionSuggestion
 from app.pipeline.analysis_agent import AnalysisAgent, AnalysisResult
+from app.api.schemas import ChartSpec
 from app.pipeline.audit_logger import AuditLogger, AuditEntry
+from app.pipeline.chart_inferer import ChartInferer
 from app.pipeline.decision_engine import DecisionEngine, Decision
 from app.pipeline.guardrails import QueryGuardrail, GuardrailViolation
 from app.pipeline.planner import PlannerAgent, InvestigationPlan
@@ -66,6 +68,7 @@ class PipelineResult:
     actions: list[ActionSuggestion]
     metadata: dict
     session_id: str
+    chart_spec: "ChartSpec | None" = None
 
 
 class PipelineOrchestrator:
@@ -82,6 +85,7 @@ class PipelineOrchestrator:
         planner: PlannerAgent,
         analysis_agent: AnalysisAgent,
         decision_engine: DecisionEngine,
+        chart_inferer: ChartInferer | None = None,
     ):
         self._schema_manager = schema_manager
         self._spl_generator = spl_generator
@@ -94,6 +98,7 @@ class PipelineOrchestrator:
         self._planner = planner
         self._analysis_agent = analysis_agent
         self._decision_engine = decision_engine
+        self._chart_inferer = chart_inferer
         self._idem_cache: _TTLCache = _TTLCache(maxsize=2048, ttl=300)
         self._idem_enabled: bool = True
         self._inflight_refreshes: set[str] = set()
@@ -327,6 +332,15 @@ class PipelineOrchestrator:
                     ],
                 )
 
+            # Chart inference (best-effort; never breaks the response)
+            chart_spec = None
+            if self._chart_inferer is not None:
+                try:
+                    chart_spec = await self._chart_inferer.infer(spl_result.spl, results)
+                except Exception:
+                    logger.warning("chart inference failed", exc_info=True)
+                    chart_spec = None
+
             # Step 10: Save turn to session
             await self._session_manager.append_turn(
                 session_id,
@@ -374,4 +388,5 @@ class PipelineOrchestrator:
                     "execution_time_ms": elapsed_ms,
                 },
                 session_id=session_id,
+                chart_spec=chart_spec,
             )

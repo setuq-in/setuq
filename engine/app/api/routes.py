@@ -10,10 +10,12 @@ from app.api.schemas import (
     QueryRequest, QueryResponse, QueryMetadata, ActionSuggestionSchema,
     InvestigationStepSchema, PlanSchema, AnomalySchema, PatternSchema,
     AnalysisSchema, DecisionSchema, ErrorResponse, HealthResponse,
+    SplunkChartExport, ChartExportRequest,
 )
 from app.llm.base import LLMProvider
 from app.pipeline.guardrails import GuardrailViolation
 from app.pipeline.orchestrator import PipelineOrchestrator
+from app.pipeline.splunk_chart_export import build_exports
 from app.pipeline.schema_manager import SchemaManager
 
 _SESSION_RATE_LIMIT = 10
@@ -52,6 +54,17 @@ def get_schema_manager():
 def get_llm_provider():
     """Overridden at app startup."""
     raise RuntimeError("LLM provider not initialized")
+
+
+@router.post("/chart/export", response_model=SplunkChartExport)
+@limiter.limit("60/minute")
+async def chart_export(
+    body: ChartExportRequest,
+    request: Request,
+    _: None = Depends(verify_api_key),
+):
+    """Convert a chart spec + SPL into Splunk Simple XML and Studio JSON source."""
+    return build_exports(body.spl, body.chart_spec)
 
 
 @router.post("/query", response_model=QueryResponse)
@@ -151,6 +164,7 @@ async def query(
             ],
             metadata=QueryMetadata(**result.metadata),
             session_id=result.session_id,
+            chart_spec=result.chart_spec,
         )
     except GuardrailViolation as e:
         raise HTTPException(status_code=422, detail=f"Guardrail violation: {e.reason}")
