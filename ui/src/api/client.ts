@@ -47,6 +47,36 @@ export interface DecisionData {
   priority_actions: string[];
 }
 
+export type ChartType =
+  | 'line'
+  | 'bar'
+  | 'column'
+  | 'stacked_bar'
+  | 'pie'
+  | 'area'
+  | 'scatter'
+  | 'bubble'
+  | 'single_value'
+  | 'gauge'
+  | 'heatmap';
+
+export interface ChartSpec {
+  chart_type: ChartType;
+  x_field: string | null;
+  y_fields: string[];
+  series_field: string | null;
+  title: string;
+  confidence: number;
+  truncated: boolean;
+  truncation_note: string | null;
+}
+
+export interface SplunkChartExport {
+  simple_xml: string;
+  studio_json: string;
+  notes: string[];
+}
+
 export interface QueryResponse {
   query: string;
   spl: string;
@@ -59,6 +89,7 @@ export interface QueryResponse {
   actions: ActionSuggestion[];
   metadata: QueryMetadata;
   session_id: string;
+  chart_spec: ChartSpec | null;
 }
 
 export interface ErrorResponse {
@@ -121,6 +152,18 @@ export async function sendQuery(query: string, sessionId?: string | null): Promi
     throw new Error(error.detail || 'Query failed');
   }
 
+  return response.json();
+}
+
+export async function exportChart(spl: string, chartSpec: ChartSpec): Promise<SplunkChartExport> {
+  const response = await fetch('/api/chart/export', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ spl, chart_spec: chartSpec }),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to export chart to Splunk format');
+  }
   return response.json();
 }
 

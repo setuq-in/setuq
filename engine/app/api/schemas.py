@@ -72,6 +72,17 @@ class ChartOverrideRequest(BaseModel):
     chart_type: str
 
 
+class SplunkChartExport(BaseModel):
+    simple_xml: str
+    studio_json: str
+    notes: list[str] = []
+
+
+class ChartExportRequest(BaseModel):
+    spl: str
+    chart_spec: ChartSpec
+
+
 class QueryResponse(BaseModel):
     query: str
     spl: str

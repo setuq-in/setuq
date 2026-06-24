@@ -1,6 +1,9 @@
-import { useState } from 'react';
-import { Copy, Terminal, ExternalLink, ShieldAlert, CheckCircle2, AlertTriangle } from 'lucide-react';
-import type { QueryResponse, ActionSuggestion } from '../api/client';
+import { useState, useEffect } from 'react';
+import { Copy, Terminal, ExternalLink, ShieldAlert, CheckCircle2, AlertTriangle, BarChart3 } from 'lucide-react';
+import type { QueryResponse, ActionSuggestion, ChartType, SplunkChartExport } from '../api/client';
+import { exportChart } from '../api/client';
+import { ChartRenderer } from './charts/ChartRenderer';
+import { CHART_TYPES } from './charts/chartOptions';
 
 interface QueryDetailsProps {
   data: QueryResponse;
@@ -32,12 +35,44 @@ export function highlightSPL(spl: string) {
 
 export function QueryDetails({ data, onSelectAction }: QueryDetailsProps) {
   const [copied, setCopied] = useState(false);
-  const [activeTab, setActiveTab] = useState<'results' | 'explanation' | 'actions'>('results');
+  const [activeTab, setActiveTab] = useState<'results' | 'explanation' | 'actions' | 'chart'>('results');
+  const [chartType, setChartType] = useState<ChartType | null>(data.chart_spec?.chart_type ?? null);
+  const [exportFormat, setExportFormat] = useState<'xml' | 'json'>('xml');
+  const [exportData, setExportData] = useState<SplunkChartExport | null>(null);
+  const [exportError, setExportError] = useState(false);
+  const [splunkCopied, setSplunkCopied] = useState(false);
+
+  const effectiveSpec =
+    data.chart_spec && chartType
+      ? { ...data.chart_spec, chart_type: chartType }
+      : data.chart_spec;
+
+  // Fetch Splunk export source whenever the chart tab is open and the type changes.
+  useEffect(() => {
+    if (activeTab !== 'chart' || !effectiveSpec) return;
+    let cancelled = false;
+    setExportError(false);
+    exportChart(data.spl, effectiveSpec)
+      .then((res) => !cancelled && setExportData(res))
+      .catch(() => !cancelled && setExportError(true));
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, chartType, data.spl]);
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(data.spl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleCopySplunk = async () => {
+    if (!exportData) return;
+    const text = exportFormat === 'xml' ? exportData.simple_xml : exportData.studio_json;
+    await navigator.clipboard.writeText(text);
+    setSplunkCopied(true);
+    setTimeout(() => setSplunkCopied(false), 2000);
   };
 
   const headers = data.results.length > 0 ? Object.keys(data.results[0]) : [];
@@ -123,6 +158,19 @@ export function QueryDetails({ data, onSelectAction }: QueryDetailsProps) {
         >
           Priority Actions ({data.actions.length})
         </button>
+        {data.chart_spec && (
+          <button
+            onClick={() => setActiveTab('chart')}
+            className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium border-b-2 cursor-pointer transition-colors ${
+              activeTab === 'chart'
+                ? 'border-splunk-mint text-splunk-mint'
+                : 'border-transparent text-splunk-text-muted hover:text-splunk-text-main'
+            }`}
+          >
+            <BarChart3 size={13} />
+            Chart
+          </button>
+        )}
       </div>
 
       {/* Tab Panels */}
@@ -227,6 +275,84 @@ export function QueryDetails({ data, onSelectAction }: QueryDetailsProps) {
                 No recommended security actions for this result
               </div>
             )}
+          </div>
+        )}
+
+        {/* Chart Panel */}
+        {activeTab === 'chart' && effectiveSpec && (
+          <div className="space-y-4">
+            {/* Chart type picker */}
+            <div className="flex items-center gap-2">
+              <label className="text-[11px] font-mono uppercase tracking-wider text-splunk-text-muted">
+                Chart Type
+              </label>
+              <select
+                value={effectiveSpec.chart_type}
+                onChange={(e) => setChartType(e.target.value as ChartType)}
+                className="text-xs font-sans bg-splunk-bg-card border border-splunk-border rounded px-2 py-1 text-splunk-text-main cursor-pointer"
+              >
+                {CHART_TYPES.map((t) => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Live preview */}
+            <div className="rounded border border-splunk-border bg-[#0c0d10] p-2">
+              <ChartRenderer spec={effectiveSpec} rows={data.results} size="full" />
+            </div>
+
+            {/* Copy to Splunk */}
+            <div className="rounded border border-splunk-border bg-splunk-bg-sidebar overflow-hidden">
+              <div className="flex items-center justify-between px-3 py-2 border-b border-splunk-border">
+                <div className="flex items-center gap-2 text-[11px] font-mono uppercase tracking-wider text-splunk-text-muted">
+                  <span>Paste into Splunk</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="flex rounded border border-splunk-border overflow-hidden">
+                    {(['xml', 'json'] as const).map((fmt) => (
+                      <button
+                        key={fmt}
+                        onClick={() => setExportFormat(fmt)}
+                        className={`px-2.5 py-1 text-[11px] font-medium cursor-pointer transition-colors ${
+                          exportFormat === fmt
+                            ? 'bg-splunk-blue text-white'
+                            : 'bg-splunk-bg-card text-splunk-text-muted hover:text-splunk-text-main'
+                        }`}
+                      >
+                        {fmt === 'xml' ? 'Simple XML' : 'Studio JSON'}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    onClick={handleCopySplunk}
+                    disabled={!exportData}
+                    className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded border border-splunk-border bg-splunk-bg-card hover:bg-splunk-bg-hover text-splunk-text-main transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    <Copy size={12} />
+                    <span>{splunkCopied ? 'Copied' : 'Copy'}</span>
+                  </button>
+                </div>
+              </div>
+              <div className="p-3 bg-[#08090b] overflow-auto max-h-[260px]">
+                {exportError ? (
+                  <p className="text-xs text-splunk-red font-sans">Failed to generate Splunk source.</p>
+                ) : exportData ? (
+                  <pre className="font-mono text-[11px] leading-relaxed whitespace-pre text-splunk-text-muted select-all">
+                    {exportFormat === 'xml' ? exportData.simple_xml : exportData.studio_json}
+                  </pre>
+                ) : (
+                  <p className="text-xs text-splunk-text-muted font-sans">Generating…</p>
+                )}
+              </div>
+              {exportData && exportData.notes.length > 0 && (
+                <div className="px-3 py-2 border-t border-splunk-border text-[11px] text-splunk-orange font-sans">
+                  {exportData.notes.map((n, i) => (
+                    <p key={i}>⚠ {n}</p>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>

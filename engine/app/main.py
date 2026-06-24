@@ -19,6 +19,7 @@ from app.llm.factory import create_llm_provider
 from app.llm.base import LLMProvider
 from app.pipeline.action_suggester import ActionSuggester
 from app.pipeline.analysis_agent import AnalysisAgent
+from app.pipeline.chart_inferer import ChartInferer
 from app.pipeline.audit_logger import init_audit_logger, get_audit_logger
 from app.pipeline.decision_engine import DecisionEngine
 from app.pipeline.guardrails import QueryGuardrail, load_guardrail_config
@@ -88,6 +89,7 @@ async def lifespan(app: FastAPI):
     planner = PlannerAgent(llm=llm)
     analysis_agent = AnalysisAgent(llm=llm)
     decision_engine = DecisionEngine(llm=llm)
+    chart_inferer = ChartInferer(llm=llm)
     audit_logger = init_audit_logger(settings.AUDIT_LOG_PATH)
     audit_logger.attach_loop(asyncio.get_running_loop())
 
@@ -114,6 +116,7 @@ async def lifespan(app: FastAPI):
         planner=planner,
         analysis_agent=analysis_agent,
         decision_engine=decision_engine,
+        chart_inferer=chart_inferer,
     )
 
     app.dependency_overrides[get_orchestrator] = lambda: _orchestrator
