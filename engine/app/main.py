@@ -23,6 +23,7 @@ from app.pipeline.audit_logger import init_audit_logger, get_audit_logger
 from app.pipeline.decision_engine import DecisionEngine
 from app.pipeline.guardrails import QueryGuardrail, load_guardrail_config
 from app.pipeline.planner import PlannerAgent
+from app.pipeline.relevance import RelevanceGate
 from app.pipeline import prompt_registry
 from app.pipeline.schema_manager import SchemaManager
 from app.pipeline.redis_session_manager import create_session_manager
@@ -88,6 +89,11 @@ async def lifespan(app: FastAPI):
     planner = PlannerAgent(llm=llm)
     analysis_agent = AnalysisAgent(llm=llm)
     decision_engine = DecisionEngine(llm=llm)
+    relevance_gate = RelevanceGate(
+        llm=llm,
+        schema_manager=_schema_manager,
+        enabled=settings.RELEVANCE_GATE_ENABLED,
+    )
     audit_logger = init_audit_logger(settings.AUDIT_LOG_PATH)
     audit_logger.attach_loop(asyncio.get_running_loop())
 
@@ -114,6 +120,7 @@ async def lifespan(app: FastAPI):
         planner=planner,
         analysis_agent=analysis_agent,
         decision_engine=decision_engine,
+        relevance_gate=relevance_gate,
     )
 
     app.dependency_overrides[get_orchestrator] = lambda: _orchestrator
