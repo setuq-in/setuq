@@ -72,30 +72,30 @@ where you want one:
 
 ```mermaid
 flowchart LR
-    Q(["🗣️ NL question<br/>'failed logins last 24h?'"])
+    Q(["NL question<br/>failed logins last 24h?"])
 
     subgraph LOOP["Setuq closed loop"]
         direction LR
-        P["1 · Plan<br/>multi-step?"]
-        G["2 · Generate SPL<br/>schema-aware"]
-        GR["3 · Guardrail<br/>safety + limits"]
-        E["4 · Execute<br/>on Splunk"]
-        AN["5 · Analyze<br/>summary + insights"]
-        AC["6 · Act<br/>suggest next steps"]
-        D["7 · Decide<br/>recommend / reject / escalate"]
+        P["1 - Plan<br/>multi-step?"]
+        G["2 - Generate SPL<br/>schema-aware"]
+        GR["3 - Guardrail<br/>safety and limits"]
+        E["4 - Execute<br/>on Splunk"]
+        AN["5 - Analyze<br/>summary and insights"]
+        AC["6 - Act<br/>suggest next steps"]
+        D["7 - Decide<br/>recommend / reject / escalate"]
         P --> G --> GR --> E --> AN --> AC --> D
     end
 
-    A[["8 · Audit<br/>tokens · cost · trace"]]
-    R(["📊 Answer<br/>SPL · summary · analysis · actions · decision"])
+    A[["8 - Audit<br/>tokens, cost, trace"]]
+    R(["Answer<br/>SPL, summary, analysis, actions, decision"])
 
     Q --> P
     D --> R
-    D -. "every step" .-> A
-    GR -. "blocked" .-> R
-    D -. "follow-up keeps session context" .-> Q
+    D -.->|every step| A
+    GR -.->|blocked| R
+    D -.->|follow-up keeps session context| Q
 
-    classDef stop fill:#fde,stroke:#b36
+    classDef stop fill:#ffdde6,stroke:#b3366b
     class GR stop
 ```
 
@@ -129,31 +129,28 @@ each resolving its prompt from a versioned registry and emitting OTel/Langfuse t
 
 ```mermaid
 flowchart TB
-    %% ---------- Clients ----------
-    subgraph CLIENTS["🖥️  Clients"]
-        UI["React + Vite UI<br/>ChatWindow · ChartRenderer"]
-        CLI["setuq_cli.py<br/>(interactive / one-shot)"]
-        EXT["External API caller<br/>(curl / integrations)"]
+    subgraph CLIENTS["Clients"]
+        UI["React + Vite UI<br/>ChatWindow and ChartRenderer"]
+        CLI["setuq_cli.py<br/>interactive or one-shot"]
+        EXT["External API caller<br/>curl or integrations"]
     end
 
-    %% ---------- API edge ----------
-    subgraph API["⚡  FastAPI Edge — app/api"]
+    subgraph API["FastAPI Edge - app/api"]
         direction TB
         CORS["CORS middleware"]
         AUTH["verify_api_key<br/>Bearer auth"]
-        RL["slowapi Limiter<br/>60/min IP · 10/min session"]
-        ROUTES["routes.py<br/>POST /api/query · GET /stream (SSE)<br/>/schema · /health · /prompts/versions · /chart/export"]
+        RL["slowapi Limiter<br/>60/min IP, 10/min session"]
+        ROUTES["routes.py<br/>POST /api/query, GET /stream SSE<br/>/schema, /health, /prompts/versions, /chart/export"]
         CORS --> AUTH --> RL --> ROUTES
     end
 
-    %% ---------- Orchestrator ----------
-    subgraph ORCH["🧠  PipelineOrchestrator — app/pipeline"]
+    subgraph ORCH["PipelineOrchestrator - app/pipeline"]
         direction TB
-        IDEM["Idempotency cache<br/>(session_id, sha256(query)) · 5-min TTL"]
+        IDEM["Idempotency cache<br/>session_id + sha256 query, 5-min TTL"]
         PLAN["PlannerAgent<br/>multi-step plan?"]
-        SPL["SPLGenerator<br/>NL → Splunk SPL"]
-        GUARD["QueryGuardrail<br/>dangerous patterns · time-range · known index"]
-        EXEC["SplunkClient<br/>execute SPL (async REST)"]
+        SPL["SPLGenerator<br/>NL to Splunk SPL"]
+        GUARD["QueryGuardrail<br/>dangerous patterns, time-range, known index"]
+        EXEC["SplunkClient<br/>execute SPL, async REST"]
         SUMM["Summarizer"]
         ANALYZE["AnalysisAgent"]
         CHART["ChartInferer<br/>chart spec"]
@@ -163,59 +160,64 @@ flowchart TB
         IDEM --> PLAN --> SPL --> GUARD --> EXEC --> SUMM --> ANALYZE --> CHART --> ACTIONS --> DECIDE --> AUDIT
     end
 
-    %% ---------- Shared services ----------
-    subgraph SVC["🧩  Shared Services"]
+    subgraph SVC["Shared Services"]
         direction TB
-        SESS["SessionManager<br/>in-memory LRU / Redis · conversation history"]
+        SESS["SessionManager<br/>in-memory LRU or Redis, conversation history"]
         SCHEMA["SchemaManager<br/>YAML overrides + SQLite cache + live discovery"]
-        PROMPTS["prompt_registry<br/>config/prompts.yaml · version hashes"]
-        GCFG["guardrails.yaml<br/>rules (fail-closed)"]
+        PROMPTS["prompt_registry<br/>config/prompts.yaml, version hashes"]
+        GCFG["guardrails.yaml<br/>rules, fail-closed"]
     end
 
-    %% ---------- LLM layer ----------
-    subgraph LLM["🤖  LLM Layer — app/llm"]
+    subgraph LLM["LLM Layer - app/llm"]
         direction TB
         FACTORY["factory.create_llm_provider"]
         HARNESS["HarnessedProvider<br/>retry + timeout + budget"]
-        FALLBACK["FallbackProvider<br/>primary → secondary → …"]
+        FALLBACK["FallbackProvider<br/>primary to secondary to next"]
         FACTORY --> HARNESS --> FALLBACK
     end
 
-    %% ---------- Observability ----------
-    subgraph OBS["📡  Observability — app/observability"]
+    subgraph OBS["Observability - app/observability"]
         TRACER["OTel tracer<br/>circuit breaker"]
-        LF["Langfuse client<br/>off hot path (queue)"]
+        LF["Langfuse client<br/>off hot path via queue"]
     end
 
-    %% ---------- External ----------
-    subgraph EXTSYS["🌐  External Systems"]
-        SPLUNK[("Splunk<br/>REST API :8089")]
+    subgraph EXTSYS["External Systems"]
+        SPLUNK[("Splunk<br/>REST API 8089")]
         REDIS[("Redis<br/>sessions")]
         ANTH["Anthropic"]
         OPENAI["OpenAI"]
-        OLLAMA["Ollama<br/>(local / sovereign)"]
+        OLLAMA["Ollama<br/>local or sovereign"]
         OTLP["OTel Collector"]
-        LANGFUSE["Langfuse (self-host)"]
+        LANGFUSE["Langfuse self-host"]
     end
 
-    %% ---------- Wiring ----------
-    UI -->|HTTP / SSE| CORS
+    UI -->|HTTP or SSE| CORS
     CLI -->|HTTP| CORS
     EXT -->|HTTP| CORS
     ROUTES --> IDEM
 
-    PLAN & SPL & SUMM & ANALYZE & CHART & ACTIONS & DECIDE -->|generate| FACTORY
-    GUARD -.->|unknown index → async refresh| SCHEMA
+    PLAN -->|generate| FACTORY
+    SPL --> FACTORY
+    SUMM --> FACTORY
+    ANALYZE --> FACTORY
+    CHART --> FACTORY
+    ACTIONS --> FACTORY
+    DECIDE --> FACTORY
+
+    GUARD -.->|unknown index refresh| SCHEMA
     SPL --> SCHEMA
     IDEM --> SESS
     AUDIT --> SESS
-    PLAN & SPL & SUMM & ANALYZE & CHART & ACTIONS & DECIDE -.->|get prompt| PROMPTS
+    PLAN -.->|get prompt| PROMPTS
+    DECIDE -.->|get prompt| PROMPTS
     GUARD -.-> GCFG
 
     EXEC -->|SPL| SPLUNK
-    SCHEMA -->|metadata / fieldsummary| SPLUNK
+    SCHEMA -->|metadata or fieldsummary| SPLUNK
     SESS -->|optional| REDIS
-    FALLBACK --> ANTH & OPENAI & OLLAMA
+    FALLBACK --> ANTH
+    FALLBACK --> OPENAI
+    FALLBACK --> OLLAMA
     HARNESS -.->|spans| TRACER
     AUDIT -.->|events| LF
     TRACER -->|gRPC| OTLP
@@ -236,25 +238,25 @@ sequenceDiagram
     participant SP as Splunk
     participant A as AuditLogger
 
-    C->>API: query (+ optional session_id)
-    API->>API: CORS · auth · rate limit
-    API->>O: run() / run_streaming()
-    O->>O: idempotency check (cache hit ⇒ return)
-    O->>LLM: PlannerAgent → plan?
-    O->>LLM: SPLGenerator → SPL  (schema context)
-    O->>O: QueryGuardrail (patterns · time-range · index)
+    C->>API: query plus optional session_id
+    API->>API: CORS, auth, rate limit
+    API->>O: run or run_streaming
+    O->>O: idempotency check, cache hit returns
+    O->>LLM: PlannerAgent, plan?
+    O->>LLM: SPLGenerator, SPL with schema context
+    O->>O: QueryGuardrail, patterns, time-range, index
     alt blocked
         O-->>API: GuardrailViolation
-        O->>SP: async refresh_index (unknown index)
+        O->>SP: async refresh_index, unknown index
     else allowed
         O->>SP: execute SPL
         SP-->>O: result rows
-        O->>LLM: Summarizer · AnalysisAgent · ChartInferer
-        O->>LLM: ActionSuggester → DecisionEngine
+        O->>LLM: Summarizer, AnalysisAgent, ChartInferer
+        O->>LLM: ActionSuggester, DecisionEngine
     end
-    O->>A: audit event (tokens · cost · decision)
-    O-->>API: result (spl, summary, analysis, actions, decision)
-    API-->>C: JSON  or  SSE: planning→spl→guardrail→executing→analyzing→deciding→done
+    O->>A: audit event, tokens, cost, decision
+    O-->>API: result, spl, summary, analysis, actions, decision
+    API-->>C: JSON or SSE steps planning to done
 ```
 
 ---
