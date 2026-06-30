@@ -12,8 +12,12 @@ from app.pipeline.guardrails import QueryGuardrail, GuardrailViolation
 
 
 @pytest.fixture
-def guardrail():
-    return QueryGuardrail(known_indexes=["myindex"], max_time_range_days=30)
+def guardrail(shipped_guardrail_config):
+    return QueryGuardrail(
+        known_indexes=["myindex"],
+        max_time_range_days=30,
+        resource_heavy_patterns=shipped_guardrail_config["resource_heavy_patterns"],
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -3,8 +3,12 @@ from app.pipeline.guardrails import QueryGuardrail, GuardrailViolation
 
 
 @pytest.fixture
-def guardrail():
-    return QueryGuardrail(known_indexes=["main", "security", "web"])
+def guardrail(shipped_guardrail_config):
+    return QueryGuardrail(
+        known_indexes=["main", "security", "web"],
+        max_time_range_days=shipped_guardrail_config["max_time_range_days"],
+        resource_heavy_patterns=shipped_guardrail_config["resource_heavy_patterns"],
+    )
 
 
 def test_valid_spl_passes(guardrail):
@@ -46,7 +50,7 @@ def test_14_day_range_passes_for_period_comparison(guardrail):
 
 def test_custom_max_time_range_enforced():
     """Caller-supplied max_time_range_days overrides default."""
-    strict = QueryGuardrail(known_indexes=["main"], max_time_range_days=7)
+    strict = QueryGuardrail(known_indexes=["main"], max_time_range_days=7, resource_heavy_patterns=[])
     spl = 'index=main earliest=-8d | stats count'
     with pytest.raises(GuardrailViolation, match="exceeds max 7d"):
         strict.validate(spl)
@@ -77,7 +81,7 @@ def test_outputlookup_raises(guardrail):
 
 
 def test_no_known_indexes_skips_index_check():
-    guardrail = QueryGuardrail(known_indexes=[])
+    guardrail = QueryGuardrail(known_indexes=[], max_time_range_days=30, resource_heavy_patterns=[])
     spl = 'index=anything earliest=-1d | stats count'
     result = guardrail.validate(spl)
     assert result.passed

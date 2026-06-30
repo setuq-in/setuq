@@ -17,8 +17,12 @@ UNSAFE_SPL = [
 
 
 @pytest.fixture
-def guard():
-    return QueryGuardrail(known_indexes=["main", "auth", "firewall"])
+def guard(shipped_guardrail_config):
+    return QueryGuardrail(
+        known_indexes=["main", "auth", "firewall"],
+        max_time_range_days=shipped_guardrail_config["max_time_range_days"],
+        resource_heavy_patterns=shipped_guardrail_config["resource_heavy_patterns"],
+    )
 
 
 @pytest.mark.parametrize("spl", SAFE_SPL)

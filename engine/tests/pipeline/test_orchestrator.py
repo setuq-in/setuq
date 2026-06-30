@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 import pytest
 from unittest.mock import AsyncMock
@@ -6,7 +7,7 @@ from app.pipeline.action_suggester import ActionSuggester, ActionSuggestion
 from app.pipeline.analysis_agent import AnalysisAgent
 from app.pipeline.audit_logger import AuditLogger
 from app.pipeline.decision_engine import DecisionEngine
-from app.pipeline.guardrails import QueryGuardrail, GuardrailViolation
+from app.pipeline.guardrails import QueryGuardrail, GuardrailViolation, load_guardrail_config
 from app.pipeline.orchestrator import PipelineOrchestrator, PipelineResult
 from app.pipeline.planner import PlannerAgent
 from app.pipeline.spl_generator import SPLGenerator
@@ -40,6 +41,10 @@ class MockLLM(LLMProvider):
 
 _SENTINEL = object()
 
+_GUARDRAIL_CONFIG = load_guardrail_config(
+    os.path.join(os.path.dirname(__file__), os.pardir, os.pardir, "config", "guardrails.yaml")
+)
+
 
 def _build_orchestrator(tmp_path, llm=None, splunk_return=_SENTINEL, guardrail_indexes=None, chart_inferer=None):
     overrides = tmp_path / "schema_overrides.yaml"
@@ -65,7 +70,11 @@ indexes:
     summarizer = Summarizer(llm=llm)
     session_manager = SessionManager()
     action_suggester = ActionSuggester(llm=llm)
-    guardrail = QueryGuardrail(known_indexes=guardrail_indexes or ["chocolate_index"])
+    guardrail = QueryGuardrail(
+        known_indexes=guardrail_indexes or ["chocolate_index"],
+        max_time_range_days=_GUARDRAIL_CONFIG["max_time_range_days"],
+        resource_heavy_patterns=_GUARDRAIL_CONFIG["resource_heavy_patterns"],
+    )
     audit_logger = AuditLogger(log_path=str(tmp_path / "audit.log"))
     planner = PlannerAgent(llm=llm)
     analysis_agent = AnalysisAgent(llm=llm)
