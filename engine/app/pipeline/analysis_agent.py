@@ -7,19 +7,6 @@ from app.pipeline.llm_utils import generate_validated, LLMOutputValidationError
 from app.pipeline.result_sampling import sample_for_llm
 
 
-SYSTEM_PROMPT = """You are a SOC analysis agent. Given Splunk query results and context, perform deep security analysis.
-
-Rules:
-- Return a JSON object with:
-  - "anomalies": array of objects with "description" (string), "severity" ("low"|"medium"|"high"|"critical"), "evidence" (string — specific data points)
-  - "patterns": array of objects with "description" (string), "confidence" (float 0.0-1.0), "affected_entities" (array of strings)
-  - "summary": string — 2-3 sentence analytical summary focusing on security implications
-- Look for: unusual spikes, outlier values, suspicious patterns, known attack signatures, geographic anomalies, time-based patterns
-- If results are empty or benign, return empty anomalies/patterns arrays with a summary stating no issues found
-- Be specific — cite actual values from the data
-- Output ONLY valid JSON, no markdown fences"""
-
-
 class _AnomalySchema(BaseModel):
     description: str = ""
     severity: str = "medium"
@@ -85,7 +72,7 @@ Results:
         try:
             data = await generate_validated(
                 llm=self._llm,
-                system_prompt=prompt_registry.resolve("analysis_agent", SYSTEM_PROMPT),
+                system_prompt=prompt_registry.get("analysis_agent"),
                 history=[],
                 user_prompt=user_prompt,
                 model_class=_AnalysisSchema,
@@ -98,5 +85,3 @@ Results:
             patterns=[Pattern(description=p.description, confidence=p.confidence, affected_entities=p.affected_entities) for p in data.patterns],
             summary=data.summary,
         )
-
-prompt_registry.register("analysis_agent", SYSTEM_PROMPT)
