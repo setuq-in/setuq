@@ -4,16 +4,6 @@ from app.pipeline import prompt_registry
 from app.pipeline.result_sampling import sample_for_llm
 
 
-SYSTEM_PROMPT = """You are a data analyst summarizing Splunk query results. Given the user's original question, the SPL query that was run, and the results, provide a concise, insight-focused summary.
-
-Rules:
-- Be concise — 2-4 sentences
-- Highlight the most important findings
-- Mention specific numbers and values
-- If results are empty, say so clearly
-- Do not explain the SPL query itself"""
-
-
 class Summarizer:
     def __init__(self, llm: LLMProvider):
         self._llm = llm
@@ -33,10 +23,8 @@ Results:
 {results_str}"""
 
         response = await self._llm.generate(
-            system_prompt=prompt_registry.resolve("summarizer", SYSTEM_PROMPT),
+            system_prompt=prompt_registry.get("summarizer"),
             history=history or [],
             user_prompt=user_prompt,
         )
         return response.content
-
-prompt_registry.register("summarizer", SYSTEM_PROMPT)

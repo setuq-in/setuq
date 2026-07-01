@@ -1,32 +1,28 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# Custom guardrail rules for generated SPL.
+# Guardrail rules for generated SPL — the SOLE source of truth.
 #
-# Any key you omit keeps its built-in code default — so you only specify what you
-# want to change. Applied at startup; restart the engine after editing.
+# There are NO code defaults. Both keys below are REQUIRED and loaded at startup;
+# a missing/malformed file is a hard failure (the engine refuses to start).
+# Applied at startup; restart the engine after editing.
 #
 # Path is configurable via GUARDRAILS_CONFIG_PATH (default: config/guardrails.yaml).
 #
 # Note: the "unknown index" check is driven by the live schema, not this file.
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Max allowed time range (in days) for `earliest=`. Omit to use the code/env
-# default (GUARDRAIL_MAX_TIME_RANGE_DAYS).
-# max_time_range_days: 30
+# Max allowed time range (in days) for `earliest=`. Required, positive integer.
+max_time_range_days: 30
 
-# Resource-heavy / dangerous SPL patterns to block. If you provide this key it
-# FULLY REPLACES the built-in list, so include the built-ins you still want.
-# Each entry: a case-insensitive regex (`pattern`) and the user-facing `reason`.
-# Invalid regexes are skipped (logged), never fatal.
-#
-# resource_heavy_patterns:
-#   - pattern: '\|\s*join\b(?![^|]*\b(?:max|overwrite)\s*=)'
-#     reason: "Unbounded join — add max= or use stats instead"
-#   - pattern: '\|\s*collect\b(?!.*index=)'
-#     reason: "collect without target index"
-#   - pattern: '\|\s*delete\b'
-#     reason: "delete command not allowed"
-#   - pattern: '\|\s*outputlookup\b'
-#     reason: "outputlookup not allowed via agent"
-#   # Add your own, e.g. block a custom expensive command:
-#   - pattern: '\|\s*mycustomcmd\b'
-#     reason: "mycustomcmd disabled in this environment"
+# Resource-heavy / dangerous SPL patterns to block. Required (may be an empty
+# list to disable resource-heavy blocking entirely). Each entry: a
+# case-insensitive regex (`pattern`) and the user-facing `reason`. Invalid
+# regexes are skipped (logged), never fatal.
+resource_heavy_patterns:
+  - pattern: '\|\s*join\b(?![^|]*\b(?:max|overwrite)\s*=)'
+    reason: "Unbounded join — add max= or use stats instead"
+  - pattern: '\|\s*collect\b(?!.*index=)'
+    reason: "collect without target index"
+  - pattern: '\|\s*delete\b'
+    reason: "delete command not allowed"
+  - pattern: '\|\s*outputlookup\b'
+    reason: "outputlookup not allowed via agent"

@@ -7,17 +7,6 @@ from app.pipeline.llm_utils import generate_validated, LLMOutputValidationError
 from app.pipeline.result_sampling import sample_for_llm
 
 
-SYSTEM_PROMPT = """You are a SOC analyst AI. Given a security query, its results, and a summary, suggest actionable security responses.
-
-Rules:
-- Return a JSON array of action objects
-- Each object has: "action" (string), "target" (string), "reasoning" (string), "risk_level" (one of "low", "medium", "high")
-- Suggest 1-3 actions based on the findings
-- Common actions: block_ip, disable_user, create_alert, escalate, investigate_further, whitelist, quarantine_host
-- If no action is warranted, return an empty array []
-- Output ONLY valid JSON, no markdown fences or explanation"""
-
-
 class _ActionItemSchema(BaseModel):
     action: str = "unknown"
     target: str = ""
@@ -75,7 +64,7 @@ Summary: {summary}"""
         try:
             data = await generate_validated(
                 llm=self._llm,
-                system_prompt=prompt_registry.resolve("action_suggester", SYSTEM_PROMPT),
+                system_prompt=prompt_registry.get("action_suggester"),
                 history=[],
                 user_prompt=user_prompt,
                 model_class=_ActionsSchema,
@@ -93,5 +82,3 @@ Summary: {summary}"""
             )
             for a in data.actions
         ]
-
-prompt_registry.register("action_suggester", SYSTEM_PROMPT)

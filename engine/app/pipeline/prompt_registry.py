@@ -7,77 +7,81 @@ import yaml
 
 _logger = logging.getLogger("setuq.prompt_registry")
 
-# Code defaults — populated by register() at module import.
-_registry: dict[str, str] = {}
-# User overrides loaded from YAML — take precedence over code defaults.
-_overrides: dict[str, str] = {}
+# Canonical set of prompts the pipeline requires. The text lives ONLY in the
+# prompts YAML — there are no code defaults. Loaded at startup; any missing name
+# is a hard failure (fail-closed) so an agent never runs without a prompt.
+REQUIRED_PROMPTS: frozenset[str] = frozenset(
+    {
+        "spl_generator",
+        "spl_explain",
+        "summarizer",
+        "action_suggester",
+        "analysis_agent",
+        "planner",
+        "decision_engine",
+    }
+)
+
+# Prompts loaded from YAML. Sole source of truth — populated by load().
+_prompts: dict[str, str] = {}
 
 
-def register(name: str, text: str) -> str:
-    """Register a prompt default by name, return effective version hash."""
-    _registry[name] = text
-    return version(name)
+class PromptConfigError(RuntimeError):
+    """Raised when the prompt YAML is missing, malformed, or incomplete."""
 
 
 def get(name: str) -> str:
-    """Return the effective prompt: YAML override if present, else code default."""
-    if name in _overrides:
-        return _overrides[name]
-    return _registry[name]
+    """Return the loaded prompt text for ``name``.
 
-
-def resolve(name: str, default: str) -> str:
-    """Return the YAML override for ``name`` if loaded, else ``default``.
-
-    Agents pass their own code-default constant so resolution never depends on
-    import-time registration having run — the registry only supplies overrides.
+    Raises ``KeyError`` if the prompt was never loaded — agents must never run
+    without a prompt (fail-closed).
     """
-    return _overrides.get(name, default)
+    return _prompts[name]
 
 
 def version(name: str) -> str:
-    """sha256[:8] of the *effective* prompt text — stable across runs.
-
-    Reflects the override when one is loaded so a customized prompt yields a
-    distinct version hash (traceable in Langfuse/OTel).
-    """
-    text = _overrides.get(name) or _registry.get(name, "")
-    return hashlib.sha256(text.encode()).hexdigest()[:8]
+    """sha256[:8] of the loaded prompt text; unknown name -> hash of ""."""
+    return hashlib.sha256(_prompts.get(name, "").encode()).hexdigest()[:8]
 
 
 def all_versions() -> dict[str, str]:
-    return {name: version(name) for name in _registry}
+    return {name: version(name) for name in _prompts}
 
 
-def load_overrides(path: str) -> int:
-    """Load prompt overrides from a YAML file mapping prompt name -> text.
+def load(path: str) -> int:
+    """Load prompts from a YAML file mapping prompt name -> text.
 
-    Best-effort: a missing file, empty file, or malformed YAML leaves code
-    defaults in place. Only keys matching a registered prompt name are applied
-    so typos can't silently inject dead prompts. Returns the count applied.
+    Accepts either a flat map or a top-level ``prompts:`` key. Returns the count
+    loaded. Raises ``PromptConfigError`` on a missing/malformed file or a
+    non-string prompt value — there are no code defaults to fall back to.
     """
     file_path = Path(path)
     if not file_path.exists():
-        return 0
+        raise PromptConfigError(f"Prompt config not found: {path}")
     try:
         content = yaml.safe_load(file_path.read_text())
     except yaml.YAMLError as exc:
-        _logger.warning("Prompt overrides YAML malformed (%s) — using code defaults: %s", path, exc)
-        return 0
+        raise PromptConfigError(f"Prompt config YAML malformed ({path}): {exc}") from exc
     if not isinstance(content, dict):
-        return 0
-    # Allow either a flat map or a top-level "prompts:" key.
+        raise PromptConfigError(f"Prompt config must be a mapping: {path}")
     mapping = content.get("prompts", content)
     if not isinstance(mapping, dict):
-        return 0
-    applied = 0
+        raise PromptConfigError(f"'prompts' must be a mapping: {path}")
+    loaded = 0
     for name, text in mapping.items():
         if not isinstance(text, str):
-            continue
-        if name not in _registry:
-            _logger.warning("Prompt override '%s' has no registered default — ignored", name)
-            continue
-        _overrides[name] = text
-        applied += 1
-        _logger.info("Prompt override applied: %s (version=%s)", name, version(name))
-    return applied
+            raise PromptConfigError(f"Prompt '{name}' must be a string, got {type(text).__name__}")
+        _prompts[name] = text
+        loaded += 1
+        _logger.info("Prompt loaded: %s (version=%s)", name, version(name))
+    return loaded
+
+
+def ensure_complete() -> None:
+    """Raise ``PromptConfigError`` if any required prompt is missing.
+
+    Fail-closed startup check — call after ``load()``.
+    """
+    missing = REQUIRED_PROMPTS - _prompts.keys()
+    if missing:
+        raise PromptConfigError(f"Missing required prompt(s): {', '.join(sorted(missing))}")

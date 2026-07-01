@@ -6,24 +6,6 @@ from app.pipeline import prompt_registry
 from app.pipeline.llm_utils import generate_validated, LLMOutputValidationError
 
 
-SYSTEM_PROMPT = """You are a SOC decision engine. Given an investigation's results, analysis, and suggested actions, produce a confidence-scored decision with full reasoning.
-
-Rules:
-- Return a JSON object with:
-  - "confidence_score": float 0.0-1.0 — overall confidence in the assessment
-  - "risk_level": "low"|"medium"|"high"|"critical"
-  - "reasoning": string — detailed explanation of how you reached this decision (2-4 sentences)
-  - "recommendation": "suggest"|"recommend_with_approval"|"auto_execute"
-    - confidence < 0.7 → "suggest"
-    - confidence 0.7-0.9 → "recommend_with_approval"
-    - confidence > 0.9 AND risk_level is "low" → "auto_execute"
-    - Otherwise → "recommend_with_approval"
-  - "priority_actions": array of strings — ordered list of most important actions to take
-- Base confidence on: data quality, pattern clarity, number of corroborating signals, severity of findings
-- Be conservative — when uncertain, lower the confidence score
-- Output ONLY valid JSON, no markdown fences"""
-
-
 class _DecisionSchema(BaseModel):
     confidence_score: float = 0.0
     risk_level: str = "medium"
@@ -71,7 +53,7 @@ Suggested actions:
         try:
             data = await generate_validated(
                 llm=self._llm,
-                system_prompt=prompt_registry.resolve("decision_engine", SYSTEM_PROMPT),
+                system_prompt=prompt_registry.get("decision_engine"),
                 history=[],
                 user_prompt=user_prompt,
                 model_class=_DecisionSchema,
@@ -108,5 +90,3 @@ Suggested actions:
         if confidence > 0.9 and risk_level == "low":
             return "auto_execute"
         return "recommend_with_approval"
-
-prompt_registry.register("decision_engine", SYSTEM_PROMPT)

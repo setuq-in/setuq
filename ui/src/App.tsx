@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { 
   Database, Menu, X, Search, RefreshCw, Send, ChevronRight, 
-  Activity, Plus, Info, ShieldCheck, Terminal
+  Activity, Plus, Info, Terminal
 } from 'lucide-react';
 import { sendQuery, getSchema, refreshSchema } from './api/client';
 import type { SchemaResponse, ActionSuggestion } from './api/client';
@@ -169,9 +169,7 @@ export default function App() {
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-4 border-b border-splunk-border/80">
           <div className="flex items-center gap-2.5">
-            <div className="w-6 h-6 rounded bg-splunk-mint flex items-center justify-center text-splunk-bg-main font-bold text-sm tracking-tighter">
-              S
-            </div>
+            <img src="/setuq-mark.png" alt="Setuq" className="w-6 h-6 object-contain shrink-0" />
             <div className="flex flex-col">
               <span className="font-bold text-sm leading-none tracking-tight">SETUQ</span>
               <span className="text-[9px] text-splunk-text-muted font-mono leading-none mt-1">v1.2.0-stable</span>
@@ -302,9 +300,7 @@ export default function App() {
         <div className="flex-1 overflow-y-auto px-6 py-6 scroll-smooth bg-radial-gradient">
           {messages.length === 0 && !loading && (
             <div className="h-full flex flex-col items-center justify-center max-w-lg mx-auto text-center select-none">
-              <div className="w-12 h-12 rounded-2xl bg-splunk-mint/10 border border-splunk-mint/25 flex items-center justify-center text-splunk-mint mb-5 shadow-lg shadow-splunk-mint/5 animate-pulse">
-                <ShieldCheck size={24} />
-              </div>
+              <img src="/setuq-mark.png" alt="Setuq" className="w-16 h-16 object-contain mb-5 drop-shadow-lg" />
               <h2 className="text-base font-bold text-splunk-text-main">Autonomous Security Analysis</h2>
               <p className="text-xs text-splunk-text-muted mt-2 leading-relaxed">
                 Welcome to Setuq &mdash; built to bridge. Splunk today, everything tomorrow. Ask questions across your Splunk indexes &mdash; business analytics (sales &amp; revenue) and audit-trail activity (authentication, account and configuration changes). The agent formulates multi-step search plans, executes SPL, analyzes trends and anomalies, and suggests next actions.

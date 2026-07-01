@@ -22,6 +22,10 @@ class GuardrailViolation(Exception):
         super().__init__(reason)
 
 
+class GuardrailConfigError(ValueError):
+    """Raised when the guardrail YAML is missing, malformed, or incomplete."""
+
+
 @dataclass
 class GuardrailResult:
     passed: bool
@@ -46,68 +50,63 @@ MAX_TIME_RANGE_DAYS = 30
 
 
 def load_guardrail_config(path: str) -> dict:
-    """Load guardrail overrides from a YAML file.
+    """Load guardrail rules from a YAML file — the sole source of truth.
 
-    Best-effort: a missing/empty/malformed file yields an empty dict so callers
-    fall back to code defaults. Recognized keys:
+    There are no code defaults. Both keys are REQUIRED:
 
-    - ``max_time_range_days`` (int)
-    - ``resource_heavy_patterns``: list of ``{pattern, reason}`` maps, each
-      compiled like the built-in ``_RESOURCE_HEAVY_PATTERNS``. A pattern that
-      fails to compile is skipped (logged), never fatal.
+    - ``max_time_range_days`` (positive int)
+    - ``resource_heavy_patterns``: list of ``{pattern, reason}`` maps. May be an
+      empty list to disable resource-heavy blocking. A pattern that fails to
+      compile is skipped (logged), never fatal.
 
-    Returns ``{"max_time_range_days": int?, "resource_heavy_patterns": list?}``
-    with only the keys that were present and valid.
+    Raises ``GuardrailConfigError`` on a missing/malformed file or a missing/
+    invalid required key. Returns
+    ``{"max_time_range_days": int, "resource_heavy_patterns": list}``.
     """
     file_path = Path(path)
     if not file_path.exists():
-        return {}
+        raise GuardrailConfigError(f"Guardrail config not found: {path}")
     try:
         content = yaml.safe_load(file_path.read_text())
     except yaml.YAMLError as exc:
-        _logger.warning("Guardrail config YAML malformed (%s) — using defaults: %s", path, exc)
-        return {}
+        raise GuardrailConfigError(f"Guardrail config YAML malformed ({path}): {exc}") from exc
     if not isinstance(content, dict):
-        return {}
+        raise GuardrailConfigError(f"Guardrail config must be a mapping: {path}")
 
-    config: dict = {}
     max_days = content.get("max_time_range_days")
-    if isinstance(max_days, int) and max_days > 0:
-        config["max_time_range_days"] = max_days
+    if not isinstance(max_days, int) or isinstance(max_days, bool) or max_days <= 0:
+        raise GuardrailConfigError("max_time_range_days is required and must be a positive integer")
 
     raw_patterns = content.get("resource_heavy_patterns")
-    if isinstance(raw_patterns, list):
-        patterns: list[tuple[str, str]] = []
-        for item in raw_patterns:
-            if not isinstance(item, dict):
-                continue
-            pattern = item.get("pattern")
-            reason = item.get("reason", "blocked by guardrail rule")
-            if not isinstance(pattern, str):
-                continue
-            try:
-                re.compile(pattern)
-            except re.error as exc:
-                _logger.warning("Skipping invalid guardrail pattern %r: %s", pattern, exc)
-                continue
-            patterns.append((pattern, str(reason)))
-        config["resource_heavy_patterns"] = patterns
-    return config
+    if not isinstance(raw_patterns, list):
+        raise GuardrailConfigError("resource_heavy_patterns is required and must be a list")
+    patterns: list[tuple[str, str]] = []
+    for item in raw_patterns:
+        if not isinstance(item, dict):
+            continue
+        pattern = item.get("pattern")
+        reason = item.get("reason", "blocked by guardrail rule")
+        if not isinstance(pattern, str):
+            continue
+        try:
+            re.compile(pattern)
+        except re.error as exc:
+            _logger.warning("Skipping invalid guardrail pattern %r: %s", pattern, exc)
+            continue
+        patterns.append((pattern, str(reason)))
+    return {"max_time_range_days": max_days, "resource_heavy_patterns": patterns}
 
 
 class QueryGuardrail:
     def __init__(
         self,
-        known_indexes: list[str] | None = None,
-        max_time_range_days: int = MAX_TIME_RANGE_DAYS,
-        resource_heavy_patterns: list[tuple[str, str]] | None = None,
+        known_indexes: list[str] | None,
+        max_time_range_days: int,
+        resource_heavy_patterns: list[tuple[str, str]],
     ):
         self._known_indexes = set(known_indexes or [])
         self._max_time_range_days = max_time_range_days
-        # None = use built-in defaults; a (possibly empty) list = full override.
-        self._resource_heavy_patterns = (
-            resource_heavy_patterns if resource_heavy_patterns is not None else _RESOURCE_HEAVY_PATTERNS
-        )
+        self._resource_heavy_patterns = resource_heavy_patterns
 
     def update_known_indexes(self, indexes: list[str]) -> None:
         self._known_indexes = set(indexes)
