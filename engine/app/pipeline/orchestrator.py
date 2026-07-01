@@ -16,6 +16,7 @@ from app.pipeline.chart_inferer import ChartInferer
 from app.pipeline.decision_engine import DecisionEngine, Decision
 from app.pipeline.guardrails import QueryGuardrail, GuardrailViolation
 from app.pipeline.planner import PlannerAgent, InvestigationPlan
+from app.pipeline.relevance import RelevanceGate, IrrelevantQueryError, NOT_APPLICABLE_MESSAGE
 from app.pipeline.schema_manager import SchemaManager
 from app.pipeline.session_manager import SessionManager, ConversationTurn
 from app.pipeline.spl_generator import SPLGenerator
@@ -85,9 +86,11 @@ class PipelineOrchestrator:
         planner: PlannerAgent,
         analysis_agent: AnalysisAgent,
         decision_engine: DecisionEngine,
+        relevance_gate: RelevanceGate | None = None,
         chart_inferer: ChartInferer | None = None,
     ):
         self._schema_manager = schema_manager
+        self._relevance_gate = relevance_gate
         self._spl_generator = spl_generator
         self._splunk_client = splunk_client
         self._summarizer = summarizer
@@ -142,6 +145,23 @@ class PipelineOrchestrator:
                 self._inflight_refreshes.discard("")
 
         loop.create_task(_run_full())
+
+    def _audit_rejection(self, session_id: str, query: str, reason: str, start_time: float) -> None:
+        """Persist an off-topic rejection to the audit log (no SPL was run)."""
+        elapsed_ms = int((time.time() - start_time) * 1000)
+        ctx = otel_trace.get_current_span().get_span_context()
+        trace_id = format(ctx.trace_id, "032x") if ctx.is_valid else ""
+        self._audit_logger.log(AuditEntry(
+            timestamp=time.time(),
+            session_id=session_id,
+            query=query,
+            spl="",
+            result_count=0,
+            execution_time_ms=elapsed_ms,
+            rejected=True,
+            rejection_reason=reason,
+            trace_id=trace_id,
+        ))
 
     def configure_idempotency(self, enabled: bool = True, ttl_seconds: int = 300) -> None:
         self._idem_enabled = enabled
@@ -228,6 +248,22 @@ class PipelineOrchestrator:
                         await on_step(step, data or {})
                     except Exception:
                         pass
+
+            # Step 0: Relevance gate — reject off-topic queries before any agent
+            # work (planning / SPL / execution). Off-topic queries never trigger
+            # the workflow; the caller gets a friendly not-applicable message.
+            if self._relevance_gate is not None:
+                await _emit("checking_relevance")
+                with tracer.start_as_current_span("pipeline.relevance") as rel_span:
+                    try:
+                        rel = await self._relevance_gate.check(query)
+                        rel_span.set_attribute("relevance.method", rel.method)
+                    except IrrelevantQueryError as e:
+                        rel_span.set_status(otel_trace.StatusCode.ERROR, e.reason)
+                        rel_span.set_attribute("relevance.rejected", True)
+                        self._audit_rejection(session_id, query, e.reason, start_time)
+                        await _emit("not_applicable", {"message": NOT_APPLICABLE_MESSAGE, "reason": e.reason})
+                        raise
 
             # Step 1: Get schema context
             with tracer.start_as_current_span("pipeline.get_schema"):

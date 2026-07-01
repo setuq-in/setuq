@@ -32,6 +32,23 @@ class GuardrailResult:
     violations: list[str]
 
 
+# Patterns considered resource-heavy or unsafe. Denylist of commands the agent
+# must never emit — code execution, outbound side effects, and destructive ops.
+_RESOURCE_HEAVY_PATTERNS = [
+    (r"\|\s*join\b(?![^|]*\b(?:max|overwrite)\s*=)", "Unbounded join — add max= or use stats instead"),
+    (r"\|\s*collect\b(?!.*index=)", "collect without target index"),
+    (r"\|\s*delete\b", "delete command not allowed"),
+    (r"\|\s*outputlookup\b", "outputlookup not allowed via agent"),
+    (r"\|\s*script\b", "script command not allowed — arbitrary code execution"),
+    (r"\|\s*runshell\b", "runshell command not allowed — shell execution"),
+    (r"\|\s*sendemail\b", "sendemail not allowed via agent — outbound side effect"),
+    (r"\|\s*rest\b", "rest command not allowed via agent — can reach internal endpoints"),
+]
+
+# Default max time range in days (overridable per-instance)
+MAX_TIME_RANGE_DAYS = 30
+
+
 def load_guardrail_config(path: str) -> dict:
     """Load guardrail rules from a YAML file — the sole source of truth.
 
@@ -127,11 +144,17 @@ class QueryGuardrail:
             stripped = part.strip()
             if re.match(r"(collect|outputlookup)\b", stripped, re.IGNORECASE):
                 continue
-            for match in re.findall(r"index\s*=\s*(\S+)", stripped):
-                idx_clean = match.strip('"').strip("'")
+            # Stop at subsearch/paren boundaries so `[search index=x]` yields "x".
+            for match in re.findall(r"index\s*=\s*([^\s\]\)]+)", stripped):
+                idx_clean = match.strip('"').strip("'").strip()
                 if not idx_clean:
                     continue
-                if idx_clean not in self._known_indexes and "*" not in idx_clean:
+                if idx_clean == "*":
+                    violations.append("Wildcard index '*' too broad — specify an index")
+                    continue
+                if "*" in idx_clean:
+                    continue  # partial wildcard (e.g. sec*) — allowed
+                if idx_clean not in self._known_indexes:
                     violations.append(f"Unknown index '{idx_clean}' — not in schema")
         return violations
 
@@ -171,13 +194,19 @@ class QueryGuardrail:
                 return [f"Time range {hours}h exceeds max {max_hours}h"]
             return []
 
-        # Block months/weeks/minutes unless very short (not implemented)
+        # Months/weeks/quarters are disallowed; minutes/seconds are allowed but
+        # must still be bounded by the same max window (so -999999m can't slip by).
         m_other = re.match(r"^-?(\d+)(mon|w|m|s|q)$", val, re.IGNORECASE)
         if m_other:
+            amount = int(m_other.group(1))
             unit = m_other.group(2).lower()
             if unit in ("mon", "w", "q"):
                 return [f"Time unit '{unit}' not allowed — use -Nd or -Nh"]
-            return []  # minutes/seconds are fine
+            minutes = amount if unit == "m" else amount / 60.0  # 'm' minutes, 's' seconds
+            max_minutes = self._max_time_range_days * 24 * 60
+            if minutes > max_minutes:
+                return [f"Time range {val} exceeds max {self._max_time_range_days}d"]
+            return []
 
         # Unknown format — reject for safety
         return [f"Unrecognized earliest= format '{val}' — use -Nd or -Nh"]
