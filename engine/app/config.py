@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     SESSION_MAX_TURNS: int = 10
     GUARDRAIL_MAX_TIME_RANGE_DAYS: int = 365
 
+    # Reject off-topic queries before the agent workflow runs (hybrid heuristic
+    # + LLM tie-break). Disable to send every query straight to planning/SPL.
+    RELEVANCE_GATE_ENABLED: bool = True
+
     # YAML files for user-customizable prompts & guardrail rules (override code defaults)
     PROMPTS_CONFIG_PATH: str = "config/prompts.yaml"
     GUARDRAILS_CONFIG_PATH: str = "config/guardrails.yaml"

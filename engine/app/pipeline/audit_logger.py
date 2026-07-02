@@ -33,6 +33,8 @@ class AuditEntry:
     trace_id: str = ""
     total_tokens: int = 0
     total_cost_usd: float = 0.0
+    rejected: bool = False
+    rejection_reason: str = ""
 
 
 # Module-level singleton — initialized once via init_audit_logger()

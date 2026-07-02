@@ -2,6 +2,7 @@ import logging
 import re
 from dataclasses import dataclass
 from app.llm.base import LLMProvider
+from app.observability.redact import hash_query
 from app.pipeline import prompt_registry
 
 _logger = logging.getLogger("setuq.spl_generator")
@@ -28,7 +29,9 @@ class SPLGenerator:
             user_prompt=query,
         )
         spl = self._clean_spl(response.content)
-        _logger.warning("spl_generator generated spl=%r", spl)
+        # Avoid logging raw SPL at WARNING — it is high-volume and may carry
+        # query terms / PII. Hash + length is enough to correlate.
+        _logger.debug("spl_generator generated spl hash=%s len=%d", hash_query(spl), len(spl))
         return spl
 
     async def explain(self, spl: str) -> str:

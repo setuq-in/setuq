@@ -3,7 +3,7 @@ import json
 import logging
 import os
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Security
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from app.api.rate_limiter import limiter, check_session_rate_limit
 from app.api.schemas import (
@@ -14,6 +14,7 @@ from app.api.schemas import (
 )
 from app.llm.base import LLMProvider
 from app.pipeline.guardrails import GuardrailViolation
+from app.pipeline.relevance import IrrelevantQueryError, NOT_APPLICABLE_MESSAGE
 from app.pipeline.orchestrator import PipelineOrchestrator
 from app.pipeline.splunk_chart_export import build_exports
 from app.pipeline.schema_manager import SchemaManager
@@ -166,6 +167,19 @@ async def query(
             session_id=result.session_id,
             chart_spec=result.chart_spec,
         )
+    except IrrelevantQueryError as e:
+        # Off-topic query — the agent workflow never ran. Return 200 with a
+        # friendly message so the UI shows a chat reply, not an error toast.
+        return JSONResponse(
+            status_code=200,
+            content={
+                "status": "not_applicable",
+                "message": NOT_APPLICABLE_MESSAGE,
+                "reason": e.reason,
+                "query": body.query,
+                "session_id": body.session_id or "",
+            },
+        )
     except GuardrailViolation as e:
         raise HTTPException(status_code=422, detail=f"Guardrail violation: {e.reason}")
     except ConnectionError as e:
@@ -236,6 +250,9 @@ async def query_stream(
                 query=query, session_id=session_id, step_queue=step_queue
             )
             await step_queue.put({"step": "done", "result": "ok", "spl": result.spl})
+        except IrrelevantQueryError:
+            # Orchestrator already emitted a "not_applicable" step; just end cleanly.
+            await step_queue.put({"step": "done", "result": "not_applicable"})
         except GuardrailViolation as e:
             await step_queue.put({"step": "error", "detail": f"Guardrail: {e.reason}"})
         except Exception as e:
