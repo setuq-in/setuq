@@ -372,7 +372,7 @@ class PipelineOrchestrator:
             chart_spec = None
             if self._chart_inferer is not None:
                 try:
-                    chart_spec = await self._chart_inferer.infer(spl_result.spl, results)
+                    chart_spec = await self._chart_inferer.infer(spl_result.spl, results, query=query)
                 except Exception:
                     logger.warning("chart inference failed", exc_info=True)
                     chart_spec = None

@@ -2050,7 +2050,12 @@ def gen_schema_overrides(overwrite=False):
         role = _index_role(name, datatype)
 
         sourcetypes_out = {}
-        for st in sorted(idx_st_map.get(name, [])):
+        # Union config-discovered sourcetypes with any profiled live via
+        # `| fieldsummary`. A bare data index (e.g. custom-ingested data) is
+        # referenced by no eventtype/saved-search/input, so it has no config
+        # sourcetypes — but field_stats.yaml still knows its real sourcetypes.
+        fs_sourcetypes = {st for (i, st) in field_stats if i == name}
+        for st in sorted(set(idx_st_map.get(name, [])) | fs_sourcetypes):
             fields = field_stats.get((name, st))
             if not fields:
                 fields = _derive_fields_from_props(st, props_by_st, transforms_by_name)

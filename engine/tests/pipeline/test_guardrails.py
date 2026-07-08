@@ -36,7 +36,7 @@ def test_missing_time_range_raises(guardrail):
 
 
 def test_excessive_time_range_raises(guardrail):
-    spl = 'index=main sourcetype=syslog earliest=-90d | stats count'
+    spl = 'index=main sourcetype=syslog earliest=-180d | stats count'
     with pytest.raises(GuardrailViolation, match="exceeds max"):
         guardrail.validate(spl)
 
@@ -182,8 +182,8 @@ def test_exactly_max_days_passes(guardrail):
 
 
 def test_one_over_max_days_raises(guardrail):
-    """Boundary: 31 days should fail (default max=30)."""
-    spl = 'index=main earliest=-31d | stats count'
+    """Boundary: 91 days should fail (max=90)."""
+    spl = 'index=main earliest=-91d | stats count'
     with pytest.raises(GuardrailViolation, match="exceeds max"):
         guardrail.validate(spl)
 

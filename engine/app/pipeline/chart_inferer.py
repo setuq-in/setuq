@@ -191,6 +191,33 @@ from app.llm.base import LLMProvider
 from app.pipeline.llm_utils import parse_llm_json
 
 
+# Explicit chart-type requests in the user's natural-language query. Ordered:
+# more specific phrases first (e.g. "stacked" before "bar"). Each maps to a
+# canonical ChartSpec.chart_type.
+_REQUESTED_CHART_TYPES: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"\b(pie|donut|doughnut)\b", re.IGNORECASE), "pie"),
+    (re.compile(r"\bstacked\b", re.IGNORECASE), "stacked_bar"),
+    (re.compile(r"\bcolumn\b", re.IGNORECASE), "column"),
+    (re.compile(r"\bbar\b", re.IGNORECASE), "bar"),
+    (re.compile(r"\barea\b", re.IGNORECASE), "area"),
+    (re.compile(r"\bline\b", re.IGNORECASE), "line"),
+    (re.compile(r"\bbubble\b", re.IGNORECASE), "bubble"),
+    (re.compile(r"\bscatter\b", re.IGNORECASE), "scatter"),
+    (re.compile(r"\bheat\s?map\b", re.IGNORECASE), "heatmap"),
+    (re.compile(r"\bgauge\b", re.IGNORECASE), "gauge"),
+]
+
+
+def detect_requested_chart_type(query: str | None) -> str | None:
+    """Return the chart type the user explicitly asked for, else None."""
+    if not query:
+        return None
+    for pattern, chart_type in _REQUESTED_CHART_TYPES:
+        if pattern.search(query):
+            return chart_type
+    return None
+
+
 LLM_CONFIDENCE_THRESHOLD = 0.7
 
 LLM_PROMPT = """You are a Splunk visualization expert. Given an SPL query and the first rows of its result, pick the best chart type and axes.
@@ -212,10 +239,18 @@ class ChartInferer:
     def __init__(self, llm: LLMProvider):
         self._llm = llm
 
-    async def infer(self, spl: str, rows: list[dict]) -> ChartSpec | None:
+    async def infer(self, spl: str, rows: list[dict], query: str | None = None) -> ChartSpec | None:
         guess = infer_heuristic(spl, rows)
         if guess is None:
             return None
+        requested = detect_requested_chart_type(query)
+        if requested is not None:
+            # User named a chart type explicitly — honor it over the heuristic,
+            # keeping the inferred axes/fields. Skip the LLM refine step.
+            guess.chart_type = requested
+            guess.confidence = 1.0
+            guess.requested_by_user = True
+            return guess
         if guess.confidence > LLM_CONFIDENCE_THRESHOLD:
             return guess
         return await self._refine_with_llm(spl, rows, guess)

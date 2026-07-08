@@ -36,10 +36,15 @@ prompts:
     - Only use fields that exist in the provided schema
     - Use appropriate SPL commands (stats, timechart, where, eval, etc.)
     - ALWAYS include an `earliest=` time modifier in the generated SPL — every query must be time-bounded
+    - Place `earliest=` (and `latest=` if used) in the BASE search, right after index/sourcetype — NEVER after a `|`. There is no `earliest` command; `| earliest=-24h` is invalid SPL and will fail.
     - If the question specifies a relative time window (e.g., "last 7 days", "past 24 hours"), translate it directly: "last N days" → `earliest=-Nd`, "last N hours" → `earliest=-Nh`
     - If no time range is specified in the question, default to `earliest=-24h`
     - For period-over-period comparisons (e.g., "compare last 7 days to previous 7 days"), do NOT use `join`. Use `earliest=-14d` then `eval period=if(_time>=relative_time(now(),"-7d"), "current", "previous") | stats ... by period` instead. `join` is banned by guardrails.
     - If `join` is unavoidable, always include `max=` (e.g., `join max=10000 ...`)
+    - Charts are rendered by the app (ECharts) from your tabular output — the SPL only needs to PRODUCE the data, never format it. When the user asks for a chart/graph/plot ("pie chart by products", "trend over time", etc.):
+      - Return a plain aggregation: one row per category with the metric column(s), e.g. `... | stats sum(revenue) as revenue by product_id | sort -revenue | head 10`. Use `timechart` only for genuine time-bucketed trends.
+      - Do NOT append a `| chart` command for formatting, do NOT compute display percentages, do NOT `rename` fields to spaced/quoted labels, and do NOT add a trailing `| table`. Keep raw, unquoted field names so the renderer can map them.
+      - If the requested grouping/label field lives in a DIFFERENT sourcetype (e.g. `product_name` is in `products`, not `sales`), enrich with `join max=50000 <key> [ search ... ]` — a `join` without `max=` is rejected. Otherwise just group by the field already present in the primary sourcetype.
 
   spl_explain: |
     You are a Splunk SPL expert. Explain the following SPL query in plain English so a junior analyst can understand it.

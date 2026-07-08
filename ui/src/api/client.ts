@@ -69,6 +69,7 @@ export interface ChartSpec {
   confidence: number;
   truncated: boolean;
   truncation_note: string | null;
+  requested_by_user: boolean;
 }
 
 export interface SplunkChartExport {

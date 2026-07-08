@@ -103,6 +103,21 @@ def test_studio_json_stacked_option():
     assert viz["options"]["stackMode"] == "stacked"
 
 
+def test_export_does_not_override_spl_time_range():
+    """No dashboard-level earliest/latest may be emitted — it would override the
+    time range already in the SPL and clamp the panel to the wrong window."""
+    spl = "search index=main earliest=-90d | timechart count"
+    export = build_exports(spl, _spec("bar"))
+    assert "<earliest>" not in export.simple_xml
+    assert "<latest>" not in export.simple_xml
+    doc = json.loads(export.studio_json)
+    ds = next(iter(doc["dataSources"].values()))
+    assert "queryParameters" not in ds["options"]
+    assert "defaults" not in doc
+    # The SPL's own time range is preserved verbatim
+    assert "earliest=-90d" in export.simple_xml
+
+
 def test_xml_escapes_special_chars_in_spl():
     spl = 'search index=main foo="a<b>&c" | stats count'
     export = build_exports(spl, _spec("bar"))

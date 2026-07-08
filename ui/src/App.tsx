@@ -129,11 +129,12 @@ export default function App() {
     { name: "analyzing", title: "Security Analysis", desc: "Evaluating anomalies & patterns..." }
   ];
 
-  // Context mock history
+  // Recent investigation contexts — grounded in the live data domains
+  // (chocolate_index sales/stores + _audit audittrailv2).
   const activeContexts = [
-    { id: "1", title: "Admin login abuse", time: "10m ago", severity: "high" },
-    { id: "2", title: "Suspicious port scan", time: "1h ago", severity: "medium" },
-    { id: "3", title: "Malicious process audit", time: "3h ago", severity: "critical" },
+    { id: "1", title: "Store profitability review", query: "Which store cities generate the most profit?", time: "12m ago", severity: "medium" },
+    { id: "2", title: "Authentication activity spike", query: "Show authentication activity in the audit logs over the last 24 hours", time: "1h ago", severity: "high" },
+    { id: "3", title: "Config change audit", query: "Show account and configuration changes in the audit trail over the last 7 days", time: "3h ago", severity: "critical" },
   ];
 
   // Suggested starter queries — grounded in the live Splunk schema
@@ -141,7 +142,7 @@ export default function App() {
   const exampleStarters = [
     "Show me top 10 products by revenue in the last 7 days",
     "Create a pie chart of revenue contribution by product name",
-    "Show failed authentication attempts in the audit logs over the last 24 hours"
+    "Which store cities generate the most profit?"
   ];
 
   // Helper to style risk labels
@@ -172,7 +173,7 @@ export default function App() {
             <img src="/setuq-mark.png" alt="Setuq" className="w-6 h-6 object-contain shrink-0" />
             <div className="flex flex-col">
               <span className="font-bold text-sm leading-none tracking-tight">SETUQ</span>
-              <span className="text-[9px] text-splunk-text-muted font-mono leading-none mt-1">v1.2.0-stable</span>
+              <span className="text-[9px] text-splunk-text-muted font-mono leading-none mt-1">v1.0.0</span>
             </div>
           </div>
           <button 
@@ -205,7 +206,7 @@ export default function App() {
               {activeContexts.map((ctx) => (
                 <div 
                   key={ctx.id}
-                  onClick={() => handleSuggestedQuestion(`Audit session history for ${ctx.title}`)}
+                  onClick={() => handleSuggestedQuestion(ctx.query)}
                   className="flex items-center justify-between p-2 rounded text-xs hover:bg-splunk-bg-card/75 border border-transparent hover:border-splunk-border cursor-pointer transition-all"
                 >
                   <div className="flex items-center gap-2 min-w-0">
@@ -245,7 +246,7 @@ export default function App() {
             <Activity size={10} className="text-splunk-mint" />
             <span>Connection Live</span>
           </span>
-          <span>head-01</span>
+          {/* <span>head-01</span> */}
         </div>
       </aside>
 

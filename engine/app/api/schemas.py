@@ -66,6 +66,7 @@ class ChartSpec(BaseModel):
     confidence: float
     truncated: bool = False
     truncation_note: str | None = None
+    requested_by_user: bool = False
 
 
 class ChartOverrideRequest(BaseModel):
