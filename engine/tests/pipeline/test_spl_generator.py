@@ -240,3 +240,47 @@ async def test_clean_spl_preserves_existing_earliest(schema_context):
     spl = await generator.generate_spl(query="failed logins last 7 days", schema_context=schema_context)
     assert "earliest=-7d" in spl
     assert spl.count("earliest=") == 1
+
+
+@pytest.mark.asyncio
+async def test_clean_spl_hoists_trailing_earliest_pipe_stage(schema_context):
+    """`| earliest=-24h` is invalid SPL; it must be hoisted into the base search."""
+    generator = SPLGenerator(llm=MockLLM(
+        response="index=chocolate_index sourcetype=data | stats sum(revenue) as total by product | sort -total | head 10 | earliest=-24h"
+    ))
+    spl = await generator.generate_spl(query="top revenue products", schema_context=schema_context)
+    assert "| earliest" not in spl
+    assert spl == "index=chocolate_index sourcetype=data earliest=-24h | stats sum(revenue) as total by product | sort -total | head 10"
+
+
+@pytest.mark.asyncio
+async def test_clean_spl_bounds_unbounded_join(schema_context):
+    """A `| join` without max= is injected with a default max= so it passes the guardrail."""
+    generator = SPLGenerator(llm=MockLLM(
+        response="index=chocolate_index sourcetype=sales earliest=-90d | stats sum(revenue) as total_revenue by product_id | join type=inner product_id [search index=chocolate_index sourcetype=products | fields product_id, product_name] | stats sum(total_revenue) as total_revenue by product_name"
+    ))
+    spl = await generator.generate_spl(query="pie chart by product name", schema_context=schema_context)
+    assert "join max=50000 type=inner product_id" in spl
+    assert spl.count("max=50000") == 1
+
+
+@pytest.mark.asyncio
+async def test_clean_spl_preserves_existing_join_max(schema_context):
+    """A join that already specifies max= is left untouched."""
+    generator = SPLGenerator(llm=MockLLM(
+        response="index=chocolate_index sourcetype=sales earliest=-24h | join max=100 product_id [search index=chocolate_index sourcetype=products]"
+    ))
+    spl = await generator.generate_spl(query="join with max", schema_context=schema_context)
+    assert "max=100" in spl
+    assert "max=50000" not in spl
+
+
+@pytest.mark.asyncio
+async def test_clean_spl_hoists_earliest_and_latest_pipe_stage(schema_context):
+    """Both earliest= and latest= in a trailing pipe stage are hoisted together."""
+    generator = SPLGenerator(llm=MockLLM(
+        response="index=security | stats count by user | earliest=-7d latest=now"
+    ))
+    spl = await generator.generate_spl(query="logins", schema_context=schema_context)
+    assert "| earliest" not in spl and "| latest" not in spl
+    assert spl == "index=security earliest=-7d latest=now | stats count by user"

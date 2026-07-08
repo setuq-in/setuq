@@ -1,6 +1,6 @@
 import pytest
 from app.api.schemas import ChartSpec
-from app.pipeline.chart_inferer import ChartInferer
+from app.pipeline.chart_inferer import ChartInferer, detect_requested_chart_type
 
 
 class StubLLM:
@@ -74,4 +74,42 @@ async def test_no_heuristic_match_no_llm_call():
     inferer = ChartInferer(llm=llm)
     spec = await inferer.infer(spl="search index=main", rows=[])
     assert spec is None
+    assert llm.called is False
+
+
+@pytest.mark.parametrize(
+    "query,expected",
+    [
+        ("Can you create a pie chart by products?", "pie"),
+        ("show me a donut of sales", "pie"),
+        ("stacked bar of events by host", "stacked_bar"),
+        ("bar chart of logins", "bar"),
+        ("plot the trend as a line", "line"),
+        ("heat map of ports", "heatmap"),
+        ("top 10 products by revenue", None),
+        ("", None),
+        (None, None),
+    ],
+)
+def test_detect_requested_chart_type(query, expected):
+    assert detect_requested_chart_type(query) == expected
+
+
+@pytest.mark.asyncio
+async def test_explicit_pie_request_overrides_bar_heuristic():
+    """10 categories would heuristically be a bar; an explicit 'pie' wins."""
+    llm = StubLLM("ignored")
+    inferer = ChartInferer(llm=llm)
+    rows = [{"product_id": f"p{i}", "revenue": str(i + 1)} for i in range(10)]
+    spec = await inferer.infer(
+        spl="search index=chocolate_index sourcetype=sales earliest=-90d "
+        "| stats sum(revenue) as revenue by product_id | sort -revenue | head 10",
+        rows=rows,
+        query="Can you create a pie chart by products?",
+    )
+    assert spec is not None
+    assert spec.chart_type == "pie"
+    assert spec.x_field == "product_id"
+    assert spec.y_fields == ["revenue"]
+    assert spec.requested_by_user is True
     assert llm.called is False

@@ -1,6 +1,6 @@
 import type { QueryResponse, ActionSuggestion } from '../api/client';
 import { QueryDetails } from './QueryDetails';
-import { AlertCircle, Brain, User, CheckCircle2, ChevronRight, Activity, TrendingUp } from 'lucide-react';
+import { AlertCircle, User, CheckCircle2, ChevronRight, Activity, TrendingUp } from 'lucide-react';
 
 export interface UserMessage {
   type: 'user';
@@ -141,7 +141,7 @@ export function MessageBubble({ message, isSelected, onSelect, onSelectAction }:
           ? 'bg-splunk-mint/20 border-splunk-mint text-splunk-mint shadow-[0_0_8px_rgba(79,164,132,0.4)]' 
           : 'bg-splunk-bg-sidebar border-splunk-border text-splunk-text-muted group-hover:border-splunk-mint group-hover:text-splunk-mint'
       }`}>
-        <Brain size={16} />
+        <img src="/setuq-mark.png" alt="Setuq" className="w-5 h-5 object-contain" />
       </div>
 
       <div className="flex-1 min-w-0">

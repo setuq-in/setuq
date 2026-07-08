@@ -35,7 +35,10 @@ export function highlightSPL(spl: string) {
 
 export function QueryDetails({ data, onSelectAction }: QueryDetailsProps) {
   const [copied, setCopied] = useState(false);
-  const [activeTab, setActiveTab] = useState<'results' | 'explanation' | 'actions' | 'chart'>('results');
+  // Open straight to the Chart tab when the user explicitly asked for a chart.
+  const [activeTab, setActiveTab] = useState<'results' | 'explanation' | 'actions' | 'chart'>(
+    data.chart_spec?.requested_by_user ? 'chart' : 'results',
+  );
   const [chartType, setChartType] = useState<ChartType | null>(data.chart_spec?.chart_type ?? null);
   const [exportFormat, setExportFormat] = useState<'xml' | 'json'>('xml');
   const [exportData, setExportData] = useState<SplunkChartExport | null>(null);

@@ -298,7 +298,19 @@ From the repo root:
 python bootstrap.py up
 ```
 
-This runs: env wizard → Splunk connectivity check → metadata extract + `schema_overrides.yaml` build → install engine deps → print the run commands. Re-run flags: `--reconfigure` (re-edit `.env`), `--refresh-schema` (re-extract), `--skip-launch` (setup only).
+This runs: optional wipe prompt → env wizard → Splunk connectivity check → metadata extract + `schema_overrides.yaml` build → install engine deps → print the run commands.
+
+`up` is the only subcommand. All flags are optional:
+
+| Flag | Effect |
+|------|--------|
+| `--reconfigure` | Re-run the `.env` wizard even if `engine/.env` already exists. |
+| `--refresh-schema` | Force metadata re-extraction even if `schema_overrides.yaml` exists (otherwise extraction is skipped when it's present). |
+| `--skip-extract` | Skip Splunk extraction entirely; reuse the existing `splunk_metadata/` + `schema_overrides.yaml`. |
+| `--with-field-stats` | Pass `--with-field-stats` to `splunk_pipeline.py` — profiles live field statistics via `\| fieldsummary` (slower, richer schema). |
+| `--skip-launch` | Setup only; don't print the run commands at the end. |
+
+On start, if any prior state exists (`.env` files, engine venv, `splunk_metadata/`, `schema_overrides.yaml`) you're prompted per-artifact to wipe it; blank/`N` keeps everything.
 
 It writes `engine/.env` (full config) and root `.env` (Splunk keys for the extractor).
 

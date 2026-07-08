@@ -11,7 +11,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Max allowed time range (in days) for `earliest=`. Required, positive integer.
-max_time_range_days: 30
+max_time_range_days: 90
 
 # Resource-heavy / dangerous SPL patterns to block. Required (may be an empty
 # list to disable resource-heavy blocking entirely). Each entry: a

@@ -57,6 +57,40 @@ class SPLGenerator:
         cleaned = cleaned.strip()
         cleaned = re.sub(r"^(SPL|Query|Splunk Query|Search)\s*[:\-]\s*", "", cleaned, flags=re.IGNORECASE)
         cleaned = cleaned.strip()
+        cleaned = self._hoist_time_modifiers(cleaned)
+        cleaned = self._bound_joins(cleaned)
         if cleaned and not re.search(r"earliest\s*=", cleaned, re.IGNORECASE):
             cleaned = f"earliest=-24h {cleaned}"
         return cleaned
+
+    def _bound_joins(self, spl: str) -> str:
+        """Inject `max=` into unbounded `join` stages. A `| join` without a
+        `max=`/`overwrite=` option is rejected by the guardrail as unbounded;
+        the LLM omits it inconsistently, so bound it deterministically. The
+        lookahead mirrors the guardrail regex (checks up to the next `|`)."""
+        return re.sub(
+            r"(\|\s*join\b)(?![^|]*\b(?:max|overwrite)\s*=)",
+            r"\1 max=50000",
+            spl,
+            flags=re.IGNORECASE,
+        )
+
+    def _hoist_time_modifiers(self, spl: str) -> str:
+        """Move earliest=/latest= modifiers out of trailing pipe stages into the
+        base search. `| earliest=-24h` is not a valid SPL command (there is no
+        `earliest` command) and Splunk rejects it with a 400."""
+        if "|" not in spl:
+            return spl
+        segments = spl.split("|")
+        hoisted: list[str] = []
+        kept: list[str] = []
+        for seg in segments[1:]:
+            # A pipe stage made up solely of earliest=/latest= tokens is misplaced.
+            if re.fullmatch(r"\s*((earliest|latest)\s*=\S+\s*)+", seg, re.IGNORECASE):
+                hoisted.append(seg.strip())
+            else:
+                kept.append(seg.strip())
+        if not hoisted:
+            return spl
+        base = f"{segments[0].rstrip()} {' '.join(hoisted)}".strip()
+        return " | ".join([base] + kept)
