@@ -91,6 +91,12 @@ export interface QueryResponse {
   metadata: QueryMetadata;
   session_id: string;
   chart_spec: ChartSpec | null;
+  chart_specs?: ChartSpec[];
+}
+
+export interface ChartFromSessionResponse {
+  chart_spec: ChartSpec | null;
+  chart_specs: ChartSpec[];
 }
 
 export interface ErrorResponse {
@@ -164,6 +170,26 @@ export async function exportChart(spl: string, chartSpec: ChartSpec): Promise<Sp
   });
   if (!response.ok) {
     throw new Error('Failed to export chart to Splunk format');
+  }
+  return response.json();
+}
+
+export async function chartFromSession(
+  sessionId: string,
+  chartType?: string,
+): Promise<ChartFromSessionResponse> {
+  const body: Record<string, string> = { session_id: sessionId };
+  if (chartType) body.chart_type = chartType;
+  const response = await fetch('/api/chart/from-session', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    if (response.status === 404) {
+      throw new Error('No results to chart yet — run a query first.');
+    }
+    throw new Error('Failed to build chart from session');
   }
   return response.json();
 }

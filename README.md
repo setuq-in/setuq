@@ -295,19 +295,25 @@ Note the Splunk host, management port (default `8089`), and credentials — the 
 From the repo root:
 
 ```bash
-python bootstrap.py up
+python siemStartUpParse.py up
 ```
 
 This runs: optional wipe prompt → env wizard → Splunk connectivity check → metadata extract + `schema_overrides.yaml` build → install engine deps → print the run commands.
 
-`up` is the only subcommand. All flags are optional:
+> `siemStartUpParse.py` merges the old `bootstrap.py` (orchestration) and
+> `splunk_pipeline.py` (Splunk export → YAML → schema) into one file with two
+> subcommands: **`up`** (bootstrap, below) and **`parse`** (run the Splunk
+> export/schema pipeline directly, e.g. `python siemStartUpParse.py parse --env-file .env`).
+> `up` shells out to `parse` for the extraction phase.
+
+`up` flags are optional:
 
 | Flag | Effect |
 |------|--------|
 | `--reconfigure` | Re-run the `.env` wizard even if `engine/.env` already exists. |
 | `--refresh-schema` | Force metadata re-extraction even if `schema_overrides.yaml` exists (otherwise extraction is skipped when it's present). |
 | `--skip-extract` | Skip Splunk extraction entirely; reuse the existing `splunk_metadata/` + `schema_overrides.yaml`. |
-| `--with-field-stats` | Pass `--with-field-stats` to `splunk_pipeline.py` — profiles live field statistics via `\| fieldsummary` (slower, richer schema). |
+| `--with-field-stats` | Pass `--with-field-stats` to the `parse` pipeline — profiles live field statistics via `\| fieldsummary` (slower, richer schema). |
 | `--skip-launch` | Setup only; don't print the run commands at the end. |
 
 On start, if any prior state exists (`.env` files, engine venv, `splunk_metadata/`, `schema_overrides.yaml`) you're prompted per-artifact to wipe it; blank/`N` keeps everything.
@@ -341,6 +347,23 @@ cp .env.example .env   # fill in SPLUNK_HOST/PORT/USERNAME/PASSWORD, LLM_API_KEY
 uvicorn app.main:app --host 127.0.0.1 --port 8001
 ```
 
+### Docker
+
+The engine ships a `Dockerfile` (`engine/Dockerfile`) and a `docker-compose.yml`
+with profile-gated services so you bring up only what you need:
+
+```bash
+docker compose up                                # Langfuse (+ Postgres) only
+docker compose --profile redis  up               # + Redis session store
+docker compose --profile valkey up               # + Valkey session store (host :6380)
+docker compose --profile app --profile redis up  # build + run the engine on Redis
+docker build -t setuq-engine ./engine            # build the engine image standalone
+```
+
+Redis and Valkey are interchangeable (both RESP-compatible) — pick one and set
+`CACHE_BACKEND` accordingly. The image installs both clients, `ecs-logging`, and
+runs as a non-root user.
+
 ### 4. Use it
 
 - **UI**: http://localhost:3000 — chat interface.
@@ -357,7 +380,10 @@ For a deeper walkthrough (tests, guardrail checks, audit logs), see [`docs/LOCAL
 |--------|------|---------|
 | `POST` | `/api/query` | Submit query; returns full result |
 | `GET` | `/api/query/stream` | SSE stream of step events |
+| `POST` | `/api/chart/from-session` | Re-chart the session's last results (no new query) |
+| `POST` | `/api/chart/export` | Convert a chart spec + SPL to Splunk Simple XML / Studio JSON |
 | `GET` | `/api/schema` | Current schema (indexes + fields) |
+| `GET` | `/api/models` | List available models (provider-dependent) |
 | `GET` | `/api/health` | Health check |
 | `GET` | `/api/prompts/versions` | Prompt version hashes |
 
@@ -370,7 +396,28 @@ For a deeper walkthrough (tests, guardrail checks, audit logs), see [`docs/LOCAL
 }
 ```
 
-Response includes: `spl`, `result_count`, `summary`, `analysis`, `actions`, `decision`, `session_id`.
+Response includes: `spl`, `result_count`, `summary`, `analysis`, `actions`, `decision`, `session_id`, and `chart_spec` / `chart_specs`.
+
+### Charts (opt-in)
+
+Charts are **not** drawn automatically. A chart is only built when the query
+explicitly asks for one — a generic verb (`chart`, `graph`, `plot`, `visualize`)
+or a named type (`pie`, `bar`, `line`, `stacked`, `scatter`, `heatmap`, …):
+
+- **No chart words** → `chart_spec: null`, `chart_specs: []` (data only).
+- **One type** ("… as a pie") → one spec.
+- **Several types** ("pie and bar") → `chart_specs` has multiple → UI shows a dropdown.
+- **`chart_spec`** stays populated with the first spec for backward compatibility.
+
+`POST /api/chart/from-session` re-charts the previous turn's results without a
+new data query (the "chart it" / "make it a pie" flow):
+
+```json
+{ "session_id": "uuid", "chart_type": "pie and bar" }   // chart_type optional
+```
+
+Returns `{ "chart_spec": {…}, "chart_specs": [ … ] }`, or `404` if that session
+has no cached results yet.
 
 ### GET `/api/query/stream`
 
@@ -396,14 +443,16 @@ Set via environment variables (or `.env`):
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `LLM_PROVIDER` | `anthropic` | `anthropic` / `openai` / `ollama` |
+| `LLM_PROVIDER` | `anthropic` | `anthropic` / `openai` / `gemini` / `ollama` |
 | `LLM_API_KEY` | — | API key for LLM provider |
-| `LLM_MODEL` | — | Model name |
+| `LLM_MODEL` | — | Model name (e.g. `gemini-2.5-flash`) |
+| `GEMINI_BASE_URL` | Google OpenAI-compat URL | Gemini endpoint (rarely changed) |
 | `FALLBACK_ENABLED` | `false` | Enable LLM fallback chain |
 | `FALLBACK_PROVIDERS` | `""` | Comma-separated fallback provider names |
 | `SPLUNK_HOST` | — | Splunk instance URL |
 | `SPLUNK_TOKEN` | — | Splunk bearer token |
-| `REDIS_URL` | `""` | Redis URL; empty = in-memory sessions |
+| `REDIS_URL` | `""` | Redis/Valkey URL; empty = in-memory sessions |
+| `CACHE_BACKEND` | `redis` | Session store client: `redis` or `valkey` |
 | `RATE_LIMIT_ENABLED` | `true` | Enable rate limiting |
 | `IDEMPOTENCY_CACHE_ENABLED` | `true` | Cache identical queries |
 | `IDEMPOTENCY_TTL_SECONDS` | `300` | Idempotency window |
@@ -416,6 +465,9 @@ Set via environment variables (or `.env`):
 | `LANGFUSE_HOST` | `""` | Langfuse self-host URL |
 | `LANGFUSE_PUBLIC_KEY` | `""` | Langfuse public key |
 | `LANGFUSE_SECRET_KEY` | `""` | Langfuse secret key |
+| `LANGFUSE_LOG_PROMPTS` | `false` | Send raw prompts/outputs to Langfuse (else hashes only) |
+| `LOG_LEVEL` | `INFO` | Engine log level; `DEBUG` for verbose tracing |
+| `LOG_ECS_ENABLED` | `true` | ECS-formatted JSON logs (needs `ecs-logging`); else plain text |
 | `API_KEY` | `""` | Bearer auth key; empty = no auth |
 
 ---
@@ -440,7 +492,11 @@ X-Allow-Auto-Execute: true
 
 ## LLM Providers
 
-Supports `anthropic`, `openai`, `ollama`. All wrapped in `HarnessedProvider` (retry + timeout + budget).
+Supports `anthropic`, `openai`, `gemini`, `ollama`. All wrapped in `HarnessedProvider` (retry + timeout + budget).
+
+`gemini` uses Google's OpenAI-compatible endpoint (reuses the `openai` client — no
+extra dependency). Set `LLM_PROVIDER=gemini`, `LLM_MODEL=gemini-2.5-flash`, and
+`LLM_API_KEY=<Google AI Studio key>`.
 
 **Fallback chain** (optional):
 
@@ -457,7 +513,14 @@ Primary fails → tries `openai` → tries `ollama` → raises error.
 
 **In-memory** (default): `SessionManager` with LRU cap (1000 sessions), 1-hour TTL.
 
-**Redis-backed**: Set `REDIS_URL=redis://localhost:6379`. Sessions persist across restarts, TTL=1 hour.
+**Redis / Valkey-backed**: Set `REDIS_URL=redis://localhost:6379`. Sessions persist
+across restarts, TTL=1 hour. Choose the client with `CACHE_BACKEND=redis` (default)
+or `CACHE_BACKEND=valkey` (RESP-compatible drop-in; `pip install valkey`). Same URL
+scheme for both. If the selected client isn't installed or the server is
+unreachable, the engine falls back to in-memory sessions with a warning.
+
+The engine stores each session's last result rows (bounded, 30-min TTL) so
+`POST /api/chart/from-session` can re-chart them without re-running the query.
 
 ---
 
@@ -495,7 +558,7 @@ Circuit breaker: after 5 consecutive export failures, OTel is bypassed (no pipel
 Bring up a self-hosted Langfuse (+ Postgres) with the bundled compose file:
 
 ```bash
-docker compose -f docker-compose.observability.yml up -d
+docker compose up -d langfuse-server langfuse-db
 ```
 
 Langfuse serves on `http://localhost:3000`. Open it, create a project, copy the keys, then set:
@@ -508,7 +571,23 @@ LANGFUSE_SECRET_KEY=sk-...
 
 > **Port note:** Langfuse uses `3000` — the same port as the UI dev server. Run them on different ports (e.g. map Langfuse to `3001:3000` in the compose file) if you need both at once.
 
-Self-hosted Langfuse v2. All LLM calls traced with cost, latency, token counts.
+Self-hosted Langfuse v2. Each pipeline run is a Langfuse **trace** (grouped by
+`session_id`); every LLM call is a **generation** nested under it with model,
+token counts and cost. Prompt/output text is only sent when
+`LANGFUSE_LOG_PROMPTS=true` — otherwise only hashes and numeric metadata leave
+the process.
+
+### Structured logging (ECS)
+
+The engine logs in [Elastic Common Schema](https://www.elastic.co/guide/en/ecs/current/index.html)
+JSON when `ecs-logging` is installed, so logs drop straight into Kibana/Elastic.
+Each record carries the current OTel `trace_id` / `span_id`, correlating logs
+with traces.
+
+```env
+LOG_LEVEL=INFO          # DEBUG for verbose per-step engine tracing
+LOG_ECS_ENABLED=true    # false → plain text (also the fallback if ecs-logging is absent)
+```
 
 ---
 
@@ -594,7 +673,7 @@ backends (Elastic / Sentinel / OpenSearch), evals, and docs all help.
 
 1. **Find or open an issue.** We track work in [GitHub Issues](https://github.com/setuq-in/setuq/issues). Look for [`ready-for-human`](https://github.com/setuq-in/setuq/labels/ready-for-human) or [`good first issue`](https://github.com/setuq-in/setuq/labels/good%20first%20issue) to get started.
 2. **Fork & branch.** Branch from `main` using a descriptive name (e.g. `feature/elastic-client`, `fix/guardrail-time-range`).
-3. **Set up locally.** Follow [Running Setuq](#running-setuq-end-to-end) — `python bootstrap.py up` gets the engine and UI running.
+3. **Set up locally.** Follow [Running Setuq](#running-setuq-end-to-end) — `python siemStartUpParse.py up` gets the engine and UI running.
 4. **Make the change.** Keep it surgical and matched to existing style (see [`CLAUDE.md`](CLAUDE.md) working principles). Add prompts/guardrails to their YAML files, not code.
 5. **Test it.** `cd engine && python3 -m pytest tests/ -q` must stay green; add tests for new behavior. Run the [eval harness](#eval-harness) if you touch the pipeline.
 6. **Open a PR.** Describe the change and link the issue. Keep PRs focused.

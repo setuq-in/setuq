@@ -209,13 +209,63 @@ _REQUESTED_CHART_TYPES: list[tuple[re.Pattern, str]] = [
 
 
 def detect_requested_chart_type(query: str | None) -> str | None:
-    """Return the chart type the user explicitly asked for, else None."""
+    """Return the FIRST chart type the user explicitly asked for, else None.
+
+    Patterns are ordered most-specific-first so 'stacked bar' resolves to
+    'stacked_bar' rather than 'bar'.
+    """
     if not query:
         return None
     for pattern, chart_type in _REQUESTED_CHART_TYPES:
         if pattern.search(query):
             return chart_type
     return None
+
+
+# Splits a query into chart requests: "pie and bar", "pie, line, bar",
+# "pie & column", "bar / line". Each segment yields at most one chart type,
+# which also avoids "stacked bar" double-counting as stacked_bar + bar.
+_CHART_SPLIT = re.compile(r"[,/&]|\b(?:and|plus|as well as)\b", re.IGNORECASE)
+
+
+def detect_requested_chart_types(query: str | None) -> list[str]:
+    """Return every distinct chart type the user asked for, in query order.
+
+    One type per segment (segments split on and/comma/&//). Empty when no
+    specific type is named (generic 'chart' words are handled by wants_chart).
+    """
+    if not query:
+        return []
+    types: list[str] = []
+    for segment in _CHART_SPLIT.split(query):
+        t = detect_requested_chart_type(segment)
+        if t and t not in types:
+            types.append(t)
+    if not types:
+        t = detect_requested_chart_type(query)
+        if t:
+            types.append(t)
+    return types
+
+
+# Generic chart-intent words (no specific type named). Charts are opt-in: we
+# only build one when the user explicitly asks for a visualization — either by
+# naming a type ("pie", "bar" -> _REQUESTED_CHART_TYPES) or with a generic verb
+# here. A plain data question ("top 10 products") never auto-charts.
+_CHART_INTENT_PATTERN = re.compile(
+    r"\b(chart|graph|plot|visuali[sz]e|visuali[sz]ation|diagram|histogram)\b",
+    re.IGNORECASE,
+)
+
+
+def wants_chart(query: str | None) -> bool:
+    """True when the query explicitly asks for a chart (generic verb or a
+    named chart type). Gates all chart inference — no request, no chart."""
+    if not query:
+        return False
+    if _CHART_INTENT_PATTERN.search(query):
+        return True
+    return detect_requested_chart_type(query) is not None
 
 
 LLM_CONFIDENCE_THRESHOLD = 0.7
@@ -239,21 +289,46 @@ class ChartInferer:
     def __init__(self, llm: LLMProvider):
         self._llm = llm
 
-    async def infer(self, spl: str, rows: list[dict], query: str | None = None) -> ChartSpec | None:
+    @staticmethod
+    def _spec_for_type(base: ChartSpec, chart_type: str) -> ChartSpec:
+        """Clone the heuristic's axes/fields but force a user-named chart type."""
+        return base.model_copy(update={
+            "chart_type": chart_type,
+            "confidence": 1.0,
+            "requested_by_user": True,
+        })
+
+    async def infer_all(
+        self, spl: str, rows: list[dict], query: str | None = None
+    ) -> list[ChartSpec]:
+        """Return one ChartSpec per chart the user asked for.
+
+        - No chart request -> [] (charts are opt-in).
+        - N named types ("pie and bar") -> N specs (UI shows a dropdown).
+        - Generic "chart"/"plot" with no type -> single best-fit spec.
+        """
+        if not wants_chart(query):
+            return []
         guess = infer_heuristic(spl, rows)
         if guess is None:
-            return None
-        requested = detect_requested_chart_type(query)
-        if requested is not None:
-            # User named a chart type explicitly — honor it over the heuristic,
-            # keeping the inferred axes/fields. Skip the LLM refine step.
-            guess.chart_type = requested
-            guess.confidence = 1.0
-            guess.requested_by_user = True
-            return guess
+            return []
+        requested = detect_requested_chart_types(query)
+        if requested:
+            # User named one or more types — honor each over the heuristic,
+            # reusing the inferred axes/fields. Skip the LLM refine step.
+            return [self._spec_for_type(guess, t) for t in requested]
+        # Generic request, no explicit type — one best-fit chart.
+        guess.requested_by_user = True
         if guess.confidence > LLM_CONFIDENCE_THRESHOLD:
-            return guess
-        return await self._refine_with_llm(spl, rows, guess)
+            return [guess]
+        return [await self._refine_with_llm(spl, rows, guess)]
+
+    async def infer(
+        self, spl: str, rows: list[dict], query: str | None = None
+    ) -> ChartSpec | None:
+        """Backward-compatible single-chart entry point (first requested)."""
+        specs = await self.infer_all(spl, rows, query)
+        return specs[0] if specs else None
 
     async def _refine_with_llm(
         self, spl: str, rows: list[dict], guess: ChartSpec

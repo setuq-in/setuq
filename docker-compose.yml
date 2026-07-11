@@ -1,0 +1,83 @@
+version: "3.9"
+
+# Profiles let you pick pieces à la carte:
+#   docker compose up                                  # Langfuse only (default)
+#   docker compose --profile redis up                  # + Redis session store
+#   docker compose --profile valkey up                 # + Valkey session store
+#   docker compose --profile app --profile redis up    # + backend engine on Redis
+services:
+  # ---- AI observability (default) ----
+  langfuse-server:
+    image: langfuse/langfuse:2
+    depends_on:
+      - langfuse-db
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://langfuse:langfuse@langfuse-db:5432/langfuse
+      NEXTAUTH_SECRET: changeme-nextauth-secret
+      SALT: changeme-salt
+      NEXTAUTH_URL: http://localhost:3000
+      TELEMETRY_ENABLED: "false"
+
+  langfuse-db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: langfuse
+      POSTGRES_DB: langfuse
+    volumes:
+      - langfuse_db_data:/var/lib/postgresql/data
+
+  # ---- Session store: pick ONE (redis OR valkey), both RESP-compatible ----
+  redis:
+    image: redis:7-alpine
+    profiles: ["redis", "app"]
+    command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  valkey:
+    image: valkey/valkey:8-alpine
+    profiles: ["valkey"]
+    command: ["valkey-server", "--save", "60", "1", "--loglevel", "warning"]
+    ports:
+      - "6380:6379"       # host 6380 so it can coexist with redis
+    volumes:
+      - valkey_data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ---- Backend engine (build from engine/Dockerfile) ----
+  engine:
+    build: ./engine
+    profiles: ["app"]
+    env_file:
+      - engine/.env
+    environment:
+      # Container-internal defaults; override in engine/.env as needed.
+      APP_HOST: 0.0.0.0
+      APP_PORT: "8001"
+      REDIS_URL: redis://redis:6379/0
+      CACHE_BACKEND: redis
+      LANGFUSE_HOST: http://langfuse-server:3000
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+    depends_on:
+      - redis
+    ports:
+      - "8001:8001"
+
+volumes:
+  langfuse_db_data:
+  redis_data:
+  valkey_data:

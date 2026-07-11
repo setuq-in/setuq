@@ -84,6 +84,17 @@ class ChartExportRequest(BaseModel):
     chart_spec: ChartSpec
 
 
+class ChartFromSessionRequest(BaseModel):
+    session_id: str
+    # Optional chart type(s), e.g. "pie" or "pie and bar". Omit for best-fit.
+    chart_type: str | None = None
+
+
+class ChartFromSessionResponse(BaseModel):
+    chart_spec: ChartSpec | None = None      # first (backward-compat)
+    chart_specs: list[ChartSpec] = []        # all requested (dropdown in UI)
+
+
 class QueryResponse(BaseModel):
     query: str
     spl: str
@@ -96,7 +107,8 @@ class QueryResponse(BaseModel):
     actions: list[ActionSuggestionSchema]
     metadata: QueryMetadata
     session_id: str
-    chart_spec: ChartSpec | None = None
+    chart_spec: ChartSpec | None = None       # first requested (backward-compat)
+    chart_specs: list[ChartSpec] = []         # all requested; >1 -> UI dropdown
     message_id: str = Field(default_factory=lambda: uuid.uuid4().hex)
 
 

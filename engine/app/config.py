@@ -15,6 +15,13 @@ class Settings(BaseSettings):
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_TIMEOUT_SECONDS: float = 300.0
     OLLAMA_JSON_MODE: bool = True
+    # Gemini via its OpenAI-compatible endpoint (set LLM_PROVIDER=gemini,
+    # LLM_MODEL=gemini-2.5-flash, LLM_API_KEY=<google api key>).
+    GEMINI_BASE_URL: str = "https://generativelanguage.googleapis.com/v1beta/openai/"
+
+    # Logging: ECS (Elastic Common Schema) structured JSON logs when available.
+    LOG_LEVEL: str = "INFO"          # DEBUG for verbose engine tracing
+    LOG_ECS_ENABLED: bool = True     # False -> plain text logs
 
     SESSION_MAX_TURNS: int = 10
     GUARDRAIL_MAX_TIME_RANGE_DAYS: int = 365
@@ -36,6 +43,9 @@ class Settings(BaseSettings):
     LANGFUSE_HOST: str = "http://localhost:3000"
     LANGFUSE_PUBLIC_KEY: str = ""
     LANGFUSE_SECRET_KEY: str = ""
+    # Send raw prompts/outputs to Langfuse traces & generations. Off by default —
+    # only hashes/metadata are sent so no prompt content leaves the box.
+    LANGFUSE_LOG_PROMPTS: bool = False
     OTEL_EXPORTER_OTLP_ENDPOINT: str = "http://localhost:4317"
     PII_REDACT: bool = True
     MAX_TOKENS_PER_RUN: int = 50_000
@@ -53,7 +63,10 @@ class Settings(BaseSettings):
     FALLBACK_ENABLED: bool = False
     FALLBACK_PROVIDERS: str = ""  # comma-sep: "anthropic,ollama"
 
-    REDIS_URL: str = ""  # e.g. redis://localhost:6379/0
+    REDIS_URL: str = ""  # e.g. redis://localhost:6379/0 (also serves Valkey)
+    # Session store client when REDIS_URL is set. "redis" (default) or "valkey".
+    # Valkey is RESP-compatible; requires the `valkey` package installed.
+    CACHE_BACKEND: str = "redis"
 
     SCHEMA_DISCOVERY_ENABLED: bool = False
     SCHEMA_CACHE_PATH: str = "engine/data/schema_cache.db"

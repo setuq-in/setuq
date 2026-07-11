@@ -11,6 +11,7 @@ from app.api.schemas import (
     InvestigationStepSchema, PlanSchema, AnomalySchema, PatternSchema,
     AnalysisSchema, DecisionSchema, ErrorResponse, HealthResponse,
     SplunkChartExport, ChartExportRequest,
+    ChartFromSessionRequest, ChartFromSessionResponse,
 )
 from app.llm.base import LLMProvider
 from app.pipeline.guardrails import GuardrailViolation
@@ -66,6 +67,28 @@ async def chart_export(
 ):
     """Convert a chart spec + SPL into Splunk Simple XML and Studio JSON source."""
     return build_exports(body.spl, body.chart_spec)
+
+
+@router.post("/chart/from-session", response_model=ChartFromSessionResponse)
+@limiter.limit("60/minute")
+async def chart_from_session(
+    body: ChartFromSessionRequest,
+    request: Request,
+    orchestrator: PipelineOrchestrator = Depends(get_orchestrator),
+    _: None = Depends(verify_api_key),
+):
+    """Re-chart a session's last results without a new data query.
+
+    "chart it" / "make that a pie" flow. `chart_type` may name one or more
+    types ("pie", "pie and bar"); omit for best-fit. 404 if nothing cached.
+    """
+    specs = await orchestrator.rechart(body.session_id, body.chart_type)
+    if not specs:
+        raise HTTPException(
+            status_code=404,
+            detail="No cached results for this session — run a data query first.",
+        )
+    return ChartFromSessionResponse(chart_spec=specs[0], chart_specs=specs)
 
 
 @router.post("/query", response_model=QueryResponse)
@@ -166,6 +189,7 @@ async def query(
             metadata=QueryMetadata(**result.metadata),
             session_id=result.session_id,
             chart_spec=result.chart_spec,
+            chart_specs=result.chart_specs,
         )
     except IrrelevantQueryError as e:
         # Off-topic query — the agent workflow never ran. Return 200 with a

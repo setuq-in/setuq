@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Copy, Terminal, ExternalLink, ShieldAlert, CheckCircle2, AlertTriangle, BarChart3 } from 'lucide-react';
-import type { QueryResponse, ActionSuggestion, ChartType, SplunkChartExport } from '../api/client';
-import { exportChart } from '../api/client';
+import type { QueryResponse, ActionSuggestion, ChartType, ChartSpec, SplunkChartExport } from '../api/client';
+import { exportChart, chartFromSession } from '../api/client';
 import { ChartRenderer } from './charts/ChartRenderer';
 import { CHART_TYPES } from './charts/chartOptions';
 
@@ -44,11 +44,36 @@ export function QueryDetails({ data, onSelectAction }: QueryDetailsProps) {
   const [exportData, setExportData] = useState<SplunkChartExport | null>(null);
   const [exportError, setExportError] = useState(false);
   const [splunkCopied, setSplunkCopied] = useState(false);
+  // Chart fetched on demand via "Chart this result" (POST /api/chart/from-session)
+  // when the original query didn't explicitly ask for a chart.
+  const [fetchedChart, setFetchedChart] = useState<ChartSpec | null>(null);
+  const [chartLoading, setChartLoading] = useState(false);
+  const [chartFetchError, setChartFetchError] = useState<string | null>(null);
 
+  // Chart source: from the query response, else one fetched on demand.
+  const baseSpec = data.chart_spec ?? fetchedChart;
   const effectiveSpec =
-    data.chart_spec && chartType
-      ? { ...data.chart_spec, chart_type: chartType }
-      : data.chart_spec;
+    baseSpec && chartType ? { ...baseSpec, chart_type: chartType } : baseSpec;
+
+  const handleChartThis = async () => {
+    setChartLoading(true);
+    setChartFetchError(null);
+    try {
+      const res = await chartFromSession(data.session_id);
+      const spec = res.chart_spec ?? res.chart_specs[0] ?? null;
+      if (!spec) {
+        setChartFetchError('No chartable data for this result.');
+        return;
+      }
+      setFetchedChart(spec);
+      setChartType(spec.chart_type);
+      setActiveTab('chart');
+    } catch (e) {
+      setChartFetchError(e instanceof Error ? e.message : 'Failed to build chart.');
+    } finally {
+      setChartLoading(false);
+    }
+  };
 
   // Fetch Splunk export source whenever the chart tab is open and the type changes.
   useEffect(() => {
@@ -161,7 +186,7 @@ export function QueryDetails({ data, onSelectAction }: QueryDetailsProps) {
         >
           Priority Actions ({data.actions.length})
         </button>
-        {data.chart_spec && (
+        {baseSpec && (
           <button
             onClick={() => setActiveTab('chart')}
             className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium border-b-2 cursor-pointer transition-colors ${
@@ -226,6 +251,23 @@ export function QueryDetails({ data, onSelectAction }: QueryDetailsProps) {
                 Duration: <span className="text-splunk-blue font-semibold">{data.metadata.execution_time_ms} ms</span>
               </div>
             </div>
+
+            {/* Chart-on-demand: only when the query didn't already produce a chart */}
+            {!baseSpec && headers.length > 0 && (
+              <div className="mt-3 flex items-center gap-2">
+                <button
+                  onClick={handleChartThis}
+                  disabled={chartLoading}
+                  className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded border border-splunk-border bg-splunk-bg-card hover:bg-splunk-bg-hover text-splunk-text-main transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  <BarChart3 size={12} />
+                  <span>{chartLoading ? 'Charting…' : 'Chart this result'}</span>
+                </button>
+                {chartFetchError && (
+                  <span className="text-[11px] text-splunk-red font-sans">{chartFetchError}</span>
+                )}
+              </div>
+            )}
           </div>
         )}
 

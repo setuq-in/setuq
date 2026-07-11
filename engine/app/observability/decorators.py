@@ -42,6 +42,20 @@ def trace_llm(provider: str):
                         span.set_attribute("gen_ai.usage.output_tokens", u.output_tokens)
                         span.set_attribute("gen_ai.usage.cost_usd", u.cost_usd)
                         span.set_attribute("gen_ai.latency_ms", elapsed_ms)
+                        # Native Langfuse generation nested under the run trace.
+                        try:
+                            from app.observability import langfuse_tracing as _lft
+                            ctx = span.get_span_context()
+                            tid = format(ctx.trace_id, "032x") if ctx.is_valid else None
+                            up = kwargs.get("user_prompt")
+                            if up is None and len(args) >= 3:
+                                up = args[2]
+                            _lft.log_generation(
+                                tid, provider, u.model, u,
+                                user_prompt=up, output=getattr(result, "content", None),
+                            )
+                        except Exception:
+                            pass
                     return result
                 except Exception as exc:
                     span.set_status(StatusCode.ERROR, str(exc))

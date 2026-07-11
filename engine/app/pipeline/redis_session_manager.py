@@ -122,16 +122,36 @@ class RedisSessionManager:
         return session
 
 
+def _make_cache_client(settings):
+    """Build an async RESP client. Backend is user's choice via CACHE_BACKEND.
+
+    Both redis-py and valkey-py expose the same async `from_url` API and speak
+    RESP, so the RedisSessionManager works unchanged with either.
+    """
+    backend = (getattr(settings, "CACHE_BACKEND", "redis") or "redis").lower()
+    if backend == "valkey":
+        import valkey.asyncio as valkey  # requires `pip install valkey`
+        _logger.info("Using Valkey session store at %s", settings.REDIS_URL)
+        return valkey.from_url(settings.REDIS_URL, decode_responses=True)
+    import redis.asyncio as aioredis
+    _logger.info("Using Redis session store at %s", settings.REDIS_URL)
+    return aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+
+
 def create_session_manager(settings, max_turns: int = 10):
-    """Factory: Redis if REDIS_URL set, else in-memory."""
+    """Factory: Redis/Valkey if REDIS_URL set, else in-memory."""
     if settings.REDIS_URL:
         try:
-            import redis.asyncio as aioredis
-            client = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
-            _logger.info("Using Redis session store at %s", settings.REDIS_URL)
+            client = _make_cache_client(settings)
             return RedisSessionManager(redis_client=client, max_turns=max_turns)
+        except ImportError as exc:
+            _logger.warning(
+                "CACHE_BACKEND=%s selected but its client is not installed (%s) — "
+                "falling back to in-memory sessions",
+                getattr(settings, "CACHE_BACKEND", "redis"), exc,
+            )
         except Exception as exc:
-            _logger.warning("Redis unavailable (%s) — falling back to in-memory sessions", exc)
+            _logger.warning("Cache backend unavailable (%s) — falling back to in-memory sessions", exc)
 
     from app.pipeline.session_manager import SessionManager
     return SessionManager(max_turns=max_turns)
