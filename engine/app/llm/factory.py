@@ -2,6 +2,7 @@ from app.config import Settings
 from app.llm.base import LLMProvider
 from app.llm.openai import OpenAIProvider
 from app.llm.anthropic import AnthropicProvider
+from app.llm.gemini import GeminiProvider
 from app.llm.ollama import OllamaProvider
 from app.llm.harness import HarnessedProvider
 from app.llm.fallback import FallbackProvider
@@ -12,6 +13,12 @@ def _make_base_provider(name: str, settings: Settings) -> LLMProvider:
         return OpenAIProvider(api_key=settings.LLM_API_KEY, model=settings.LLM_MODEL)
     if name == "anthropic":
         return AnthropicProvider(api_key=settings.LLM_API_KEY, model=settings.LLM_MODEL)
+    if name == "gemini":
+        return GeminiProvider(
+            api_key=settings.LLM_API_KEY,
+            model=settings.LLM_MODEL,
+            base_url=settings.GEMINI_BASE_URL,
+        )
     if name == "ollama":
         return OllamaProvider(
             base_url=settings.OLLAMA_BASE_URL,

@@ -1,11 +1,19 @@
 """Guardrail hardening — command denylist, wildcard/subsearch index, time bounds."""
 import pytest
 
-from app.pipeline.guardrails import QueryGuardrail, GuardrailViolation
+from app.pipeline.guardrails import (
+    QueryGuardrail,
+    GuardrailViolation,
+    _RESOURCE_HEAVY_PATTERNS,
+)
 
 
 def _guard():
-    return QueryGuardrail(known_indexes=["main", "security"], max_time_range_days=30)
+    return QueryGuardrail(
+        known_indexes=["main", "security"],
+        max_time_range_days=30,
+        resource_heavy_patterns=_RESOURCE_HEAVY_PATTERNS,
+    )
 
 
 @pytest.mark.parametrize("cmd", ["script", "runshell", "sendemail", "rest"])

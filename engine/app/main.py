@@ -34,6 +34,7 @@ from app.pipeline.summarizer import Summarizer
 from app.pipeline.orchestrator import PipelineOrchestrator
 from app.observability.tracer import init_tracer, shutdown_tracer
 from app.observability.langfuse_client import init_langfuse, flush_langfuse
+from app.observability.logging_setup import configure_logging
 
 settings = Settings()
 _orchestrator: PipelineOrchestrator | None = None
@@ -47,9 +48,20 @@ _scheduler = None
 async def lifespan(app: FastAPI):
     global _orchestrator, _schema_manager, _splunk_client, _llm, _scheduler
 
+    # Structured ECS logging first so every startup line is captured.
+    configure_logging(settings)
+    _log = logging.getLogger("setuq.main")
+    _log.info(
+        "engine starting provider=%s model=%s obs_enabled=%s redis=%s",
+        settings.LLM_PROVIDER, settings.LLM_MODEL,
+        settings.OBSERVABILITY_ENABLED, bool(settings.REDIS_URL),
+    )
+
     # Init observability (no-op if OBSERVABILITY_ENABLED=False)
     init_tracer(settings)
     init_langfuse(settings)
+    from app.observability.langfuse_tracing import configure as configure_langfuse_tracing
+    configure_langfuse_tracing(settings.LANGFUSE_LOG_PROMPTS)
 
     llm = create_llm_provider(settings)
     _llm = llm

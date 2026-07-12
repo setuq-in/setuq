@@ -23,8 +23,10 @@ def test_unknown_index_raises(guardrail):
         guardrail.validate(spl)
 
 
-def test_wildcard_index_passes(guardrail):
-    spl = 'index=* sourcetype=syslog earliest=-1d | stats count'
+def test_partial_wildcard_index_passes(guardrail):
+    # Bare `index=*` is blocked as too broad (see test_guardrails_hardening);
+    # a partial wildcard is still allowed.
+    spl = 'index=sec* sourcetype=syslog earliest=-1d | stats count'
     result = guardrail.validate(spl)
     assert result.passed
 

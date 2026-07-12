@@ -12,6 +12,9 @@ def __getattr__(name):
     elif name == "get_langfuse":
         from app.observability.langfuse_client import get_langfuse
         return get_langfuse
+    elif name == "configure_logging":
+        from app.observability.logging_setup import configure_logging
+        return configure_logging
     elif name == "trace_step":
         from app.observability.decorators import trace_step
         return trace_step
@@ -29,6 +32,7 @@ def __getattr__(name):
 __all__ = [
     "init_tracer", "get_tracer",
     "init_langfuse", "get_langfuse",
+    "configure_logging",
     "trace_step", "trace_llm",
     "hash_query", "scrub_dict",
 ]

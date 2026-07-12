@@ -7,6 +7,7 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from opentelemetry import trace as otel_trace
 from app.observability import get_tracer, hash_query
+from app.observability import langfuse_tracing
 from app.llm.harness import init_run_budget, reset_run_budget, BudgetExceeded, get_run_budget_usage
 from app.pipeline.action_suggester import ActionSuggester, ActionSuggestion
 from app.pipeline.analysis_agent import AnalysisAgent, AnalysisResult
@@ -70,6 +71,7 @@ class PipelineResult:
     metadata: dict
     session_id: str
     chart_spec: "ChartSpec | None" = None
+    chart_specs: list = field(default_factory=list)
 
 
 class PipelineOrchestrator:
@@ -105,6 +107,9 @@ class PipelineOrchestrator:
         self._idem_cache: _TTLCache = _TTLCache(maxsize=2048, ttl=300)
         self._idem_enabled: bool = True
         self._inflight_refreshes: set[str] = set()
+        # Last result rows per session, for re-charting without a new query
+        # (POST /api/chart/from-session). Bounded + TTL so it can't grow forever.
+        self._last_results: _TTLCache = _TTLCache(maxsize=512, ttl=1800)
 
     def _trigger_reactive_schema_refresh(self, violations: list[str]) -> None:
         """Fire-and-forget background schema refresh; de-duped by in-flight set."""
@@ -220,6 +225,26 @@ class PipelineOrchestrator:
             reset_run_budget(budget_token)
         return result
 
+    async def rechart(self, session_id: str, chart_type: str | None = None) -> list:
+        """Re-chart the session's last results without running a new query.
+
+        Reads cached rows from the previous run. `chart_type` may name one or
+        more types ("pie", "pie and bar"); omit for best-fit. Returns [] when
+        no cached results exist or charting isn't possible.
+        """
+        if self._chart_inferer is None:
+            return []
+        cached = self._last_results.get(session_id)
+        if cached is None:
+            logger.info("rechart miss session=%s (no cached results)", session_id)
+            return []
+        # Feed chart_type through the query path so type detection applies;
+        # a bare type name still trips wants_chart via detect_requested_chart_types.
+        pseudo_query = chart_type or "chart"
+        specs = await self._chart_inferer.infer_all(cached["spl"], cached["rows"], query=pseudo_query)
+        logger.info("rechart session=%s types=%s", session_id, [c.chart_type for c in specs])
+        return specs
+
     async def _run_inner(
         self,
         query: str,
@@ -241,6 +266,18 @@ class PipelineOrchestrator:
             # Load or create session
             session_id, _ = await self._session_manager.get_or_create(session_id)
             history = await self._session_manager.build_history_messages(session_id)
+            logger.info(
+                "pipeline start session=%s query_hash=%s history_turns=%d",
+                session_id, hash_query(query), len(history) // 2,
+            )
+            logger.debug("query=%.200r", query)
+
+            # Native Langfuse trace for this run; LLM generations nest under it.
+            _root_ctx = span.get_span_context()
+            _root_trace_id = format(_root_ctx.trace_id, "032x") if _root_ctx.is_valid else ""
+            lf_trace = langfuse_tracing.start_trace(
+                _root_trace_id, "pipeline.run", session_id, query
+            )
 
             async def _emit(step: str, data: dict | None = None) -> None:
                 if on_step is not None:
@@ -289,6 +326,7 @@ class PipelineOrchestrator:
                 plan = plan_t.result()
                 from app.pipeline.spl_generator import SPLResult as _SPLResult
                 spl_result = _SPLResult(spl=spl_t.result(), explanation="")
+            logger.info("SPL generated needs_plan=%s spl=%r", plan.needs_plan, spl_result.spl)
 
             await _emit("spl", {"spl": spl_result.spl, "explanation": spl_result.explanation})
 
@@ -307,6 +345,7 @@ class PipelineOrchestrator:
                     guardrail_span.set_attribute("guardrail.violations", ", ".join(guardrail_violations))
                     self._trigger_reactive_schema_refresh(guardrail_violations)
                     raise
+            logger.debug("guardrail passed spl=%r", spl_result.spl)
 
             await _emit("executing")
             # Step 5: Execute Splunk + generate explanation concurrently
@@ -328,6 +367,10 @@ class PipelineOrchestrator:
                 results = execute_t.result()
                 from app.pipeline.spl_generator import SPLResult as _SPLResult
                 spl_result = _SPLResult(spl=spl_result.spl, explanation=explain_t.result())
+            logger.info(
+                "splunk execute complete result_count=%d elapsed_ms=%d",
+                len(results), int((time.time() - start_time) * 1000),
+            )
 
             await _emit("analyzing", {"result_count": len(results)})
             # Step 6+7: Summarize and analyze concurrently (both only need query/spl/results)
@@ -346,6 +389,10 @@ class PipelineOrchestrator:
                             raise _e from eg
                     raise eg.exceptions[0]
                 summary, analysis = sum_t.result(), ana_t.result()
+            logger.debug(
+                "analysis complete anomalies=%d patterns=%d",
+                len(analysis.anomalies), len(analysis.patterns),
+            )
 
             await _emit("deciding")
             # Step 8: Suggest actions (needs summary)
@@ -367,15 +414,31 @@ class PipelineOrchestrator:
                         for a in actions
                     ],
                 )
+            logger.info(
+                "decision recommendation=%s risk=%s confidence=%.2f",
+                decision.recommendation, decision.risk_level, decision.confidence_score,
+            )
 
-            # Chart inference (best-effort; never breaks the response)
-            chart_spec = None
+            # Cache rows so the user can re-chart them later without re-querying.
+            self._last_results.set(session_id, {"spl": spl_result.spl, "rows": results})
+
+            # Chart inference (best-effort; never breaks the response). May return
+            # multiple specs when the user asks for several chart types.
+            chart_specs: list = []
             if self._chart_inferer is not None:
                 try:
-                    chart_spec = await self._chart_inferer.infer(spl_result.spl, results, query=query)
+                    chart_specs = await self._chart_inferer.infer_all(spl_result.spl, results, query=query)
+                    if chart_specs:
+                        logger.info(
+                            "charts inferred count=%d types=%s",
+                            len(chart_specs), [c.chart_type for c in chart_specs],
+                        )
+                    else:
+                        logger.debug("no chart (not requested or not chartable)")
                 except Exception:
                     logger.warning("chart inference failed", exc_info=True)
-                    chart_spec = None
+                    chart_specs = []
+            chart_spec = chart_specs[0] if chart_specs else None
 
             # Step 10: Save turn to session
             await self._session_manager.append_turn(
@@ -384,6 +447,17 @@ class PipelineOrchestrator:
             )
 
             elapsed_ms = int((time.time() - start_time) * 1000)
+
+            # Close out the Langfuse trace with the run's outcome.
+            lf_output = {
+                "recommendation": decision.recommendation,
+                "risk_level": decision.risk_level,
+                "result_count": len(results),
+                "chart_type": chart_spec.chart_type if chart_spec else None,
+            }
+            if langfuse_tracing.log_prompts_enabled():
+                lf_output["summary"] = summary
+            langfuse_tracing.update_trace(lf_trace, lf_output)
 
             # Capture trace_id from current span context
             ctx = otel_trace.get_current_span().get_span_context()
@@ -425,4 +499,5 @@ class PipelineOrchestrator:
                 },
                 session_id=session_id,
                 chart_spec=chart_spec,
+                chart_specs=chart_specs,
             )

@@ -14,6 +14,12 @@ _MODEL_PRICES: dict[str, tuple[float, float]] = {
     "claude-3-5-sonnet-20241022": (3.00, 15.00),
     "claude-3-5-haiku-20241022": (0.80, 4.00),
     "claude-3-opus-20240229": (15.00, 75.00),
+    # Google Gemini (per 1M tokens; approximate, standard context tier)
+    "gemini-2.5-pro": (1.25, 10.00),
+    "gemini-2.5-flash": (0.30, 2.50),
+    "gemini-2.0-flash": (0.10, 0.40),
+    "gemini-1.5-pro": (1.25, 5.00),
+    "gemini-1.5-flash": (0.075, 0.30),
 }
 
 _PER_MILLION = 1_000_000

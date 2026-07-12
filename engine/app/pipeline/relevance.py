@@ -102,7 +102,8 @@ When unsure, prefer relevant=true.
 
 Return ONLY a JSON object: {"relevant": boolean, "reason": short string}. No markdown fences."""
 
-prompt_registry.register("relevance_gate", SYSTEM_PROMPT)
+# Optional prompt: resolve() at call time uses SYSTEM_PROMPT as the code default
+# and picks up a "relevance_gate" entry from prompts.yaml when one is provided.
 
 
 class _RelevanceSchema(BaseModel):

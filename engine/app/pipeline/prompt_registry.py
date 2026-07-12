@@ -39,6 +39,17 @@ def get(name: str) -> str:
     return _prompts[name]
 
 
+def resolve(name: str, default: str) -> str:
+    """Return the loaded prompt for ``name``, or ``default`` if none was loaded.
+
+    Unlike ``get`` (fail-closed, YAML is the sole source), this supports
+    optional, feature-scoped prompts that ship a code default and allow a YAML
+    override — e.g. the relevance gate, which is intentionally NOT in
+    REQUIRED_PROMPTS. Required pipeline prompts must keep using ``get``.
+    """
+    return _prompts.get(name, default)
+
+
 def version(name: str) -> str:
     """sha256[:8] of the loaded prompt text; unknown name -> hash of ""."""
     return hashlib.sha256(_prompts.get(name, "").encode()).hexdigest()[:8]
