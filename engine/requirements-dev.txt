@@ -1,0 +1,4 @@
+# Test/dev-only deps — NOT installed in the production image.
+-r requirements.txt
+pytest==8.3.5
+pytest-asyncio==0.25.3

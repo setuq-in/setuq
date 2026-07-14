@@ -191,3 +191,7 @@ class HarnessedProvider(LLMProvider):
         raise RuntimeError(
             f"LLM generate failed after {self._max_retries} attempts"
         ) from last_exc
+
+    async def close(self) -> None:
+        if hasattr(self._base, "close"):
+            await self._base.close()

@@ -23,5 +23,12 @@ graphify-out/**
 
 # Env files
 .env
+*.env
+!*.env.example
 splunk_metadata/**
 *.code-workspace
+
+# Runtime artifacts
+*.db
+*.log
+engine/data/
