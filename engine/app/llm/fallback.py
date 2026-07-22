@@ -40,3 +40,8 @@ class FallbackProvider(LLMProvider):
         raise RuntimeError(
             f"All {len(self._providers)} LLM providers failed"
         ) from last_exc
+
+    async def close(self) -> None:
+        for provider in self._providers:
+            if hasattr(provider, "close"):
+                await provider.close()

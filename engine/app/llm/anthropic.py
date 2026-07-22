@@ -10,6 +10,9 @@ class AnthropicProvider(LLMProvider):
         self.client = AsyncAnthropic(api_key=api_key)
         self.model = model
 
+    async def close(self) -> None:
+        await self.client.close()
+
     @trace_llm(provider="anthropic")
     async def generate(
         self,
