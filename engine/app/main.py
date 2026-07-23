@@ -37,6 +37,35 @@ from app.observability.langfuse_client import init_langfuse, flush_langfuse
 from app.observability.logging_setup import configure_logging
 
 settings = Settings()
+
+_log = logging.getLogger("setuq.main")
+
+
+def _validate_startup_config(cfg: Settings) -> None:
+    """Fail-closed in production; warn loudly in development.
+
+    Weak defaults (no auth, wildcard CORS, TLS verify off) are convenient for
+    local dev but dangerous in prod. In production we refuse to start.
+    """
+    origins = [o.strip() for o in cfg.UI_ORIGINS.split(",") if o.strip()]
+    problems: list[str] = []
+    if not cfg.API_KEY:
+        problems.append("API_KEY is empty — the API is UNAUTHENTICATED")
+    if "*" in origins or not origins:
+        problems.append("UI_ORIGINS is a wildcard ('*') — any site can call the API")
+    if not cfg.SPLUNK_VERIFY_SSL:
+        problems.append("SPLUNK_VERIFY_SSL is false — Splunk TLS is not verified (MITM risk)")
+
+    is_prod = cfg.ENVIRONMENT.strip().lower() == "production"
+    if problems and is_prod:
+        raise RuntimeError(
+            "Refusing to start in production with insecure config:\n  - "
+            + "\n  - ".join(problems)
+        )
+    for p in problems:
+        _log.warning("INSECURE CONFIG (%s): %s", cfg.ENVIRONMENT, p)
+
+
 _orchestrator: PipelineOrchestrator | None = None
 _schema_manager: SchemaManager | None = None
 _splunk_client: SplunkClient | None = None
@@ -48,7 +77,8 @@ _scheduler = None
 async def lifespan(app: FastAPI):
     global _orchestrator, _schema_manager, _splunk_client, _llm, _scheduler
 
-    # Structured ECS logging first so every startup line is captured.
+    # Structured ECS logging first so every startup line — including the
+    # config-validation warnings below — is captured.
     configure_logging(settings)
     _log = logging.getLogger("setuq.main")
     _log.info(
@@ -56,6 +86,10 @@ async def lifespan(app: FastAPI):
         settings.LLM_PROVIDER, settings.LLM_MODEL,
         settings.OBSERVABILITY_ENABLED, bool(settings.REDIS_URL),
     )
+
+    # Fail-closed in production on weak config (empty API_KEY, wildcard CORS,
+    # unverified Splunk TLS); warn loudly in development.
+    _validate_startup_config(settings)
 
     # Init observability (no-op if OBSERVABILITY_ENABLED=False)
     init_tracer(settings)
@@ -155,7 +189,9 @@ async def lifespan(app: FastAPI):
         )
         _scheduler.start()
 
+    app.state.ready = True
     yield
+    app.state.ready = False
 
     if _scheduler and _scheduler.running:
         _scheduler.shutdown(wait=False)
@@ -171,6 +207,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Setuq — Built to bridge. Splunk today, everything tomorrow.", lifespan=lifespan)
+app.state.ready = False
 
 set_limiter_enabled(settings.RATE_LIMIT_ENABLED)
 app.state.limiter = limiter

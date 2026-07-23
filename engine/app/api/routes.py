@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import secrets
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Security
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -20,9 +21,6 @@ from app.pipeline.orchestrator import PipelineOrchestrator
 from app.pipeline.splunk_chart_export import build_exports
 from app.pipeline.schema_manager import SchemaManager
 
-_SESSION_RATE_LIMIT = 10
-
-
 router = APIRouter(prefix="/api")
 
 _bearer = HTTPBearer(auto_error=False)
@@ -33,13 +31,30 @@ def _get_api_key() -> str:
     return os.environ.get("API_KEY", "")
 
 
+def _ip_rate_limit() -> str:
+    """Per-IP slowapi limit string, read from env each request (config-driven)."""
+    return os.environ.get("RATE_LIMIT_PER_IP", "60/minute")
+
+
+def _session_rate_limit() -> int:
+    """Per-session request cap parsed from RATE_LIMIT_PER_SESSION (e.g. '10/minute')."""
+    raw = os.environ.get("RATE_LIMIT_PER_SESSION", "10/minute")
+    try:
+        return int(raw.split("/", 1)[0])
+    except (ValueError, IndexError):
+        return 10
+
+
 def verify_api_key(
     credentials: HTTPAuthorizationCredentials | None = Security(_bearer),
 ) -> None:
     api_key = _get_api_key()
     if not api_key:
         return  # auth disabled in dev mode
-    if credentials is None or credentials.credentials != api_key:
+    # Constant-time compare — avoid leaking key length/prefix via timing.
+    if credentials is None or not secrets.compare_digest(
+        credentials.credentials, api_key
+    ):
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 
@@ -59,7 +74,7 @@ def get_llm_provider():
 
 
 @router.post("/chart/export", response_model=SplunkChartExport)
-@limiter.limit("60/minute")
+@limiter.limit(_ip_rate_limit)
 async def chart_export(
     body: ChartExportRequest,
     request: Request,
@@ -92,7 +107,7 @@ async def chart_from_session(
 
 
 @router.post("/query", response_model=QueryResponse)
-@limiter.limit("60/minute")
+@limiter.limit(_ip_rate_limit)
 async def query(
     body: QueryRequest,
     request: Request,
@@ -101,7 +116,7 @@ async def query(
 ):
     try:
         if body.session_id:
-            allowed = await check_session_rate_limit(body.session_id, limit=_SESSION_RATE_LIMIT)
+            allowed = await check_session_rate_limit(body.session_id, limit=_session_rate_limit())
             if not allowed:
                 raise HTTPException(
                     status_code=429,
@@ -248,7 +263,7 @@ async def list_models(
 
 
 @router.get("/query/stream")
-@limiter.limit("30/minute")
+@limiter.limit(_ip_rate_limit)
 async def query_stream(
     request: Request,
     query: str = Query(..., description="Natural language security query"),
@@ -258,7 +273,7 @@ async def query_stream(
 ):
     """SSE endpoint — emits per-step progress then full result."""
     if session_id:
-        allowed = await check_session_rate_limit(session_id, limit=_SESSION_RATE_LIMIT)
+        allowed = await check_session_rate_limit(session_id, limit=_session_rate_limit())
         if not allowed:
             raise HTTPException(
                 status_code=429,
@@ -317,4 +332,22 @@ async def query_stream(
 
 @router.get("/health", response_model=HealthResponse)
 async def health():
+    """Liveness: process is up. Never touches dependencies."""
     return HealthResponse(status="ok")
+
+
+@router.get("/health/live", response_model=HealthResponse)
+async def health_live():
+    return HealthResponse(status="ok")
+
+
+@router.get("/health/ready")
+async def health_ready(request: Request):
+    """Readiness: pipeline wired + prompts loaded. 503 until startup completes.
+
+    k8s should gate traffic on this; use /health/live for restart decisions.
+    """
+    ready = getattr(request.app.state, "ready", False)
+    if not ready:
+        raise HTTPException(status_code=503, detail="Service not ready")
+    return {"status": "ready"}

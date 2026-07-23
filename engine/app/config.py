@@ -2,6 +2,10 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
+    # "development" (default) tolerates weak config with loud warnings.
+    # "production" fail-closes at startup on empty API_KEY or wildcard CORS.
+    ENVIRONMENT: str = "development"
+
     SPLUNK_HOST: str = "localhost"
     SPLUNK_PORT: int = 8089
     SPLUNK_USERNAME: str = "admin"

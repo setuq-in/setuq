@@ -10,6 +10,9 @@ class OpenAIProvider(LLMProvider):
         self.client = AsyncOpenAI(api_key=api_key)
         self.model = model
 
+    async def close(self) -> None:
+        await self.client.close()
+
     @trace_llm(provider="openai")
     async def generate(
         self,
