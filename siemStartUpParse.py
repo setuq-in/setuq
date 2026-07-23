@@ -118,12 +118,15 @@ def parse_pipeline_args(argv=None):
         help=(
             "Also run `| fieldsummary` per sourcetype for --field-stats-indexes "
             "and export cardinality/top-values/null-rate to field_stats.yaml. "
-            "Requires a live, reachable Splunk (runs real searches)."
+            "Requires a live, reachable Splunk (runs real searches). Unless "
+            "--field-stats-indexes narrows it, this profiles EVERY real data "
+            "index on the instance, so expect a long run on a busy Splunk."
         ))
-    parser.add_argument("--field-stats-indexes", default="chocolate_index",
+    parser.add_argument("--field-stats-indexes", default=None,
         help=(
-            "Comma-separated list of indexes to profile with --with-field-stats "
-            "(default: chocolate_index)"
+            "Comma-separated list of indexes to profile with --with-field-stats. "
+            "Default: auto-detect every real data index on the instance "
+            "(non-internal, nonzero event count)."
         ))
     parser.add_argument("--field-stats-sample-secs", type=int, default=None,
         help=(
@@ -653,6 +656,31 @@ def _cardinality_class(field, total_count):
     return "high (near-unique — do NOT `stats ... by` this; it's an identifier, not a dimension)"
 
 
+def _default_field_stats_indexes():
+    """Every real data index on this instance, discovered live.
+
+    Reuses Phase 3's `_include_index` filter so "real data index" means the
+    same thing in Phase 1 as it does when the schema is synthesised. Internal
+    (`_*`) indexes are left out — the knowledge-object signal they'd need isn't
+    available until Phase 2; pass them explicitly via --field-stats-indexes.
+    """
+    try:
+        entries = fetch_entries("/services/data/indexes")
+    except Exception as e:
+        print(f"  FAILED to auto-discover indexes for field-stats: {e}")
+        save_error("field_stats", "discover_indexes", str(e))
+        return []
+    return sorted(
+        d["name"] for d in entries
+        if d.get("name")
+        and _include_index(
+            d["name"],
+            {"total_event_count": d.get("totalEventCount")},
+            ko_indexes=set(),
+        )
+    )
+
+
 def export_field_stats(indexes, earliest_secs=None):
     print(f"\nProfiling field cardinality for indexes: {', '.join(indexes)} ...")
     earliest_clause = f"earliest=-{earliest_secs}s" if earliest_secs else ""
@@ -692,7 +720,7 @@ def export_field_stats(indexes, earliest_secs=None):
                 "version": 1,
                 "kind": "field_stats",
                 "source": "live `| fieldsummary` searches (--with-field-stats)",
-                "generated_by": "splunk_pipeline.py --with-field-stats",
+                "generated_by": "siemStartUpParse.py --with-field-stats",
                 "description": (
                     "Per-field cardinality/null-rate/top-values profile, sampled live "
                     "via `| fieldsummary`. `cardinality` is a direct safety signal for "
@@ -759,10 +787,14 @@ def run_extraction(args):
             save_error(folder, endpoint, str(e))
 
     if args.with_field_stats:
-        export_field_stats(
-            [s.strip() for s in args.field_stats_indexes.split(",") if s.strip()],
-            earliest_secs=args.field_stats_sample_secs,
-        )
+        if args.field_stats_indexes:
+            fs_indexes = [s.strip() for s in args.field_stats_indexes.split(",") if s.strip()]
+        else:
+            fs_indexes = _default_field_stats_indexes()
+            print(f"  auto-profiling {len(fs_indexes)} data index(es): "
+                  f"{', '.join(fs_indexes) or '(none found)'}")
+        if fs_indexes:
+            export_field_stats(fs_indexes, earliest_secs=args.field_stats_sample_secs)
 
     save_json("metadata", "export_summary", {
         "total_export_types": len(EXPORTS),
@@ -917,7 +949,7 @@ def gen_dashboards():
     dump_yaml(DASH_OUT, {
         "version":      1,
         "source":       "splunk_export/dashboards",
-        "generated_by": "splunk_pipeline.py",
+        "generated_by": "siemStartUpParse.py",
         "stats":        stats,
         "dashboards":   out,
     })
@@ -1356,7 +1388,7 @@ def gen_spl_patterns():
         "version":      1,
         "kind":         "spl_patterns",
         "source":       "splunk_metadata/saved_searches.yaml + macros.yaml (mined offline)",
-        "generated_by": "splunk_pipeline.py",
+        "generated_by": "siemStartUpParse.py",
         "description": (
             "Real SPL idioms mined from this Splunk instance's saved searches "
             "and macros, grouped by command. Shows the agent HOW commands are "
@@ -1463,7 +1495,7 @@ def gen_dependencies():
         "version":      1,
         "kind":         "dependencies",
         "source":       "splunk_metadata/{dashboards,saved_searches,macros,datamodels}.yaml (cross-referenced offline)",
-        "generated_by": "splunk_pipeline.py",
+        "generated_by": "siemStartUpParse.py",
         "description": (
             "Knowledge-object dependency graph recovered by cross-referencing "
             "dashboard panel queries, saved searches, and macros against known "
@@ -1509,7 +1541,7 @@ def gen_metadata():
             "version":      1,
             "kind":         kind,
             "source":       f"splunk_export/{kind}",
-            "generated_by": "splunk_pipeline.py",
+            "generated_by": "siemStartUpParse.py",
             "count":        len(items),
             "items":        items,
         })
@@ -1633,12 +1665,27 @@ def _discover_index_sourcetypes(known_indexes):
         for obj in dm.get("objects", []):
             spl_blobs += obj.get("constraints", []) or []
             spl_blobs.append(obj.get("search"))
+    # Dashboard panels are usually the ONLY place a business index's
+    # `index=X sourcetype=Y` pairing is written down. Note dashboards.yaml keys
+    # its list as `dashboards`, not `items`, so `_meta_items` can't read it.
+    spl_blobs += [
+        panel.get("query")
+        for dash in (_load_meta("dashboards").get("dashboards") or [])
+        for panel in (dash.get("panels") or [])
+    ]
 
     for spl in spl_blobs:
         if not isinstance(spl, str):
             continue
         indexes = [i for i in _INDEX_RE.findall(spl) if "*" not in i and i in known_indexes]
-        sourcetypes = [_strip_wildcard(s) for s in _SOURCETYPE_RE.findall(spl) if "*" not in s.rstrip("*")]
+        # A bare `sourcetype=*` survives the wildcard guard but strips to "" —
+        # common in dashboard panels, so drop the empties.
+        sourcetypes = [
+            st for st in (
+                _strip_wildcard(s)
+                for s in _SOURCETYPE_RE.findall(spl) if "*" not in s.rstrip("*")
+            ) if st
+        ]
         for idx in indexes:
             for st in sourcetypes:
                 mapping[idx].add(st)
@@ -1866,7 +1913,7 @@ def _index_description(it, role):
 
 
 _SCHEMA_OVERRIDES_HEADER = (
-    "Auto-generated by splunk_pipeline.py (Phase 3) from splunk_metadata/. "
+    "Auto-generated by siemStartUpParse.py (Phase 3) from splunk_metadata/. "
     "Generic structural schema (indexes/sourcetypes/fields) for a standalone "
     "Splunk; merge-preserves any curated business semantics. "
     "Re-run with --with-field-stats for per-field cardinality."
@@ -2241,7 +2288,7 @@ def _env_value(value) -> str:
 
 
 def splunk_subset(values: dict) -> dict:
-    """Return only the SPLUNK_* keys — what splunk_pipeline.py reads."""
+    """Return only the SPLUNK_* keys — what the parse pipeline reads."""
     return {k: v for k, v in values.items() if k.startswith("SPLUNK_")}
 
 
@@ -2582,7 +2629,7 @@ def run_bootstrap(argv=None) -> None:
     up_parser.add_argument("--skip-launch", action="store_true",
                            help="setup only; do not print the run commands")
     up_parser.add_argument("--with-field-stats", action="store_true",
-                           help="pass --with-field-stats to splunk_pipeline.py")
+                           help="pass --with-field-stats to the parse pipeline")
     up_parser.add_argument("--_bootstrapped", action="store_true",
                            help=argparse.SUPPRESS)  # internal: set on the re-exec'd run
     up_parser.set_defaults(func=up)

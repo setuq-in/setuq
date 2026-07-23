@@ -20,8 +20,10 @@ tests/**/__pycache__/**
 graphify-out/**
 .agent/**
 .DS_Store
-
+.venv*
 # Env files
 .env
 splunk_metadata/**
 *.code-workspace
+schema_overrides.yaml*
+audit.log*
