@@ -313,8 +313,14 @@ This runs: optional wipe prompt → env wizard → Splunk connectivity check →
 | `--reconfigure` | Re-run the `.env` wizard even if `engine/.env` already exists. |
 | `--refresh-schema` | Force metadata re-extraction even if `schema_overrides.yaml` exists (otherwise extraction is skipped when it's present). |
 | `--skip-extract` | Skip Splunk extraction entirely; reuse the existing `splunk_metadata/` + `schema_overrides.yaml`. |
-| `--with-field-stats` | Pass `--with-field-stats` to the `parse` pipeline — profiles live field statistics via `\| fieldsummary` (slower, richer schema). |
+| `--with-field-stats` | Pass `--with-field-stats` to the `parse` pipeline — profiles live field statistics via `\| fieldsummary` for **every real data index** (non-internal, nonzero event count). Slower, but yields per-field cardinality in `schema_overrides.yaml`. |
 | `--skip-launch` | Setup only; don't print the run commands at the end. |
+
+To profile only specific indexes instead of all of them, call `parse` directly with `--field-stats-indexes` (a `parse`-only flag, not forwarded by `up`):
+
+```bash
+python siemStartUpParse.py parse --with-field-stats --field-stats-indexes chocolate_index,tiktok_index
+```
 
 On start, if any prior state exists (`.env` files, engine venv, `splunk_metadata/`, `schema_overrides.yaml`) you're prompted per-artifact to wipe it; blank/`N` keeps everything.
 
