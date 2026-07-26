@@ -1,6 +1,6 @@
 import type { QueryResponse, ActionSuggestion } from '../api/client';
 import { QueryDetails } from './QueryDetails';
-import { AlertCircle, User, CheckCircle2, ChevronRight, Activity, TrendingUp } from 'lucide-react';
+import { AlertCircle, User, CheckCircle2, Activity, TrendingUp } from 'lucide-react';
 
 export interface UserMessage {
   type: 'user';
@@ -113,6 +113,8 @@ export function MessageBubble({ message, isSelected, onSelect, onSelectAction }:
   // System Message Card layout
   const kpi = extractKPI(message.data.results);
   const decision = message.data.decision;
+  const pct = (v: number | null | undefined) =>
+    v === null || v === undefined ? 'n/a' : `${Math.round(v * 100)}%`;
 
   // Decide indicator color based on severity/risk
   const getDecisionBorder = (recommendation: string) => {
@@ -200,10 +202,13 @@ export function MessageBubble({ message, isSelected, onSelect, onSelectAction }:
 
         {/* Bubble footer info */}
         <div className="flex justify-between items-center px-1 mt-2 text-[10px] font-mono text-splunk-text-muted">
-          <span className="uppercase tracking-wider flex items-center gap-1">
-            <span>SETUQ AGENT</span>
-            <ChevronRight size={10} />
-            <span className="text-splunk-mint">SUCCESS</span>
+          <span className="uppercase tracking-wider flex items-center gap-2">
+            <span className="px-1.5 py-0.5 rounded bg-splunk-bg-card border border-splunk-border">
+              SPL match {pct(message.data.spl_confidence)}
+            </span>
+            <span className="px-1.5 py-0.5 rounded bg-splunk-bg-card border border-splunk-border">
+              Decision {pct(decision.confidence_score)}
+            </span>
           </span>
           <span className="hover:text-splunk-mint cursor-pointer transition-colors" onClick={onSelect}>
             Inspect details (Click to open sidebar)

@@ -101,6 +101,17 @@ async def test_post_query(client, mock_orchestrator):
 
 
 @pytest.mark.asyncio
+async def test_query_response_includes_spl_confidence(client, mock_orchestrator):
+    base = await mock_orchestrator.run()          # the fixture's PipelineResult
+    base.spl_confidence = 0.77
+    mock_orchestrator.run = AsyncMock(return_value=base)
+    resp = await client.post("/api/query", json={"query": "show revenue by store"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["spl_confidence"] == 0.77
+
+
+@pytest.mark.asyncio
 async def test_post_query_empty_body(client):
     async with client as c:
         response = await c.post("/api/query", json={})

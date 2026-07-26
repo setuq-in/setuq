@@ -16,7 +16,8 @@ splunk_export/**
 tests/__pycache__/**
 tests/**/__pycache__/**
 .vscode/
-.github/workflows/
+.github/workflows/*
+!.github/workflows/bench.yml
 graphify-out/**
 .agent/**
 .DS_Store
