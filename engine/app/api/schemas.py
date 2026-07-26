@@ -109,6 +109,7 @@ class QueryResponse(BaseModel):
     session_id: str
     chart_spec: ChartSpec | None = None       # first requested (backward-compat)
     chart_specs: list[ChartSpec] = []         # all requested; >1 -> UI dropdown
+    spl_confidence: float | None = None
     message_id: str = Field(default_factory=lambda: uuid.uuid4().hex)
 
 

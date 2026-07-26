@@ -20,6 +20,7 @@ from app.pipeline.planner import PlannerAgent, InvestigationPlan
 from app.pipeline.relevance import RelevanceGate, IrrelevantQueryError, NOT_APPLICABLE_MESSAGE
 from app.pipeline.schema_manager import SchemaManager
 from app.pipeline.session_manager import SessionManager, ConversationTurn
+from app.pipeline.spl_confidence import SPLConfidenceScorer
 from app.pipeline.spl_generator import SPLGenerator
 from app.pipeline.splunk_client import SplunkClient
 from app.pipeline.summarizer import Summarizer
@@ -72,6 +73,7 @@ class PipelineResult:
     session_id: str
     chart_spec: "ChartSpec | None" = None
     chart_specs: list = field(default_factory=list)
+    spl_confidence: float | None = None
 
 
 class PipelineOrchestrator:
@@ -90,6 +92,7 @@ class PipelineOrchestrator:
         decision_engine: DecisionEngine,
         relevance_gate: RelevanceGate | None = None,
         chart_inferer: ChartInferer | None = None,
+        spl_confidence_scorer: "SPLConfidenceScorer | None" = None,
     ):
         self._schema_manager = schema_manager
         self._relevance_gate = relevance_gate
@@ -104,6 +107,7 @@ class PipelineOrchestrator:
         self._analysis_agent = analysis_agent
         self._decision_engine = decision_engine
         self._chart_inferer = chart_inferer
+        self._spl_confidence_scorer = spl_confidence_scorer
         self._idem_cache: _TTLCache = _TTLCache(maxsize=2048, ttl=300)
         self._idem_enabled: bool = True
         self._inflight_refreshes: set[str] = set()
@@ -351,6 +355,7 @@ class PipelineOrchestrator:
             # Step 5: Execute Splunk + generate explanation concurrently
             # (explain is pure LLM, explain is independent of results)
             with tracer.start_as_current_span("pipeline.execute_and_explain"):
+                confidence_t = None
                 try:
                     async with asyncio.TaskGroup() as tg:
                         execute_t = tg.create_task(
@@ -359,6 +364,18 @@ class PipelineOrchestrator:
                         explain_t = tg.create_task(
                             self._spl_generator.explain(spl_result.spl)
                         )
+                        if self._spl_confidence_scorer is not None:
+                            # score() swallows LLMOutputValidationError (returns
+                            # None); a harder LLM/connectivity failure here will
+                            # cancel the sibling execute/explain tasks and fail the
+                            # query. That is intentional — per Invariant #2 those
+                            # errors must propagate to the harness/circuit-breaker.
+                            # Do NOT wrap this in a bare `except Exception`.
+                            confidence_t = tg.create_task(
+                                self._spl_confidence_scorer.score(
+                                    query=query, spl=spl_result.spl, schema_context=schema_context
+                                )
+                            )
                 except* Exception as eg:
                     for _e in eg.exceptions:
                         if not isinstance(_e, asyncio.CancelledError):
@@ -367,6 +384,7 @@ class PipelineOrchestrator:
                 results = execute_t.result()
                 from app.pipeline.spl_generator import SPLResult as _SPLResult
                 spl_result = _SPLResult(spl=spl_result.spl, explanation=explain_t.result())
+                spl_confidence = confidence_t.result() if confidence_t is not None else None
             logger.info(
                 "splunk execute complete result_count=%d elapsed_ms=%d",
                 len(results), int((time.time() - start_time) * 1000),
@@ -500,4 +518,5 @@ class PipelineOrchestrator:
                 session_id=session_id,
                 chart_spec=chart_spec,
                 chart_specs=chart_specs,
+                spl_confidence=spl_confidence,
             )

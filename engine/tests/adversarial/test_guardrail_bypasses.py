@@ -212,6 +212,6 @@ def test_delete_inline_caught(guardrail):
 
 
 def test_collect_without_index_caught(guardrail):
-    """collect without index= target must be caught."""
-    with pytest.raises(GuardrailViolation, match="collect without target index"):
+    """collect (summary-index write) must be caught."""
+    with pytest.raises(GuardrailViolation, match="collect / summary-index write not allowed"):
         guardrail.validate("index=myindex earliest=-1d | collect")

@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  engine-tests:
+    name: Engine tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            engine/requirements.txt
+            engine/requirements-dev.txt
+
+      - name: Install dependencies
+        working-directory: engine
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      # tests/bench is owned by bench.yml (it also produces the latency report),
+      # so it is excluded here to avoid running the same suite twice per push.
+      - name: Run test suite
+        working-directory: engine
+        run: python -m pytest tests/ --ignore=tests/bench -q
+
+  ui:
+    name: UI lint + build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ui
+        run: npm ci
+
+      # Report-only: the tree currently has 2 pre-existing eslint errors
+      # (no-explicit-any in App.tsx, only-export-components in QueryDetails.tsx).
+      # Drop continue-on-error once those are fixed to make lint a real gate.
+      - name: Lint (report-only)
+        working-directory: ui
+        continue-on-error: true
+        run: npm run lint
+
+      - name: Build
+        working-directory: ui
+        run: npm run build
