@@ -18,6 +18,7 @@ tests/**/__pycache__/**
 .vscode/
 .github/workflows/*
 !.github/workflows/bench.yml
+!.github/workflows/ci.yml
 graphify-out/**
 .agent/**
 .DS_Store
