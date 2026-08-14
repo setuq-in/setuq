@@ -341,12 +341,12 @@ class ChartInferer:
             f"Return the best ChartSpec JSON for these results."
         )
         try:
-            raw = await self._llm.generate(
+            response = await self._llm.generate(
                 system_prompt=LLM_PROMPT,
                 history=[],
                 user_prompt=user_prompt,
             )
-            parsed = parse_llm_json(raw, fallback=None)
+            parsed = parse_llm_json(response.content, fallback=None)
             if parsed is None or not isinstance(parsed, dict):
                 return guess
             # Preserve truncation flags from heuristic

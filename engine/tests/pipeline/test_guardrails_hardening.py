@@ -1,18 +1,20 @@
 """Guardrail hardening — command denylist, wildcard/subsearch index, time bounds."""
 import pytest
 
-from app.pipeline.guardrails import (
-    QueryGuardrail,
-    GuardrailViolation,
-    _RESOURCE_HEAVY_PATTERNS,
-)
+from app.pipeline.guardrails import QueryGuardrail, GuardrailViolation, load_guardrail_config
+from tests.conftest import GUARDRAILS_PATH
+
+# Load from the shipped YAML — the sole source of truth at runtime — rather
+# than a hand-maintained constant, so this test can't drift from production
+# wiring the way it previously did (see config/guardrails.yaml history).
+_SHIPPED_CONFIG = load_guardrail_config(GUARDRAILS_PATH)
 
 
 def _guard():
     return QueryGuardrail(
         known_indexes=["main", "security"],
-        max_time_range_days=30,
-        resource_heavy_patterns=_RESOURCE_HEAVY_PATTERNS,
+        max_time_range_days=_SHIPPED_CONFIG["max_time_range_days"],
+        resource_heavy_patterns=_SHIPPED_CONFIG["resource_heavy_patterns"],
     )
 
 
@@ -49,9 +51,9 @@ def test_subsearch_known_index_allowed():
 
 
 def test_unbounded_minutes_blocked():
-    guard = _guard()  # 30d max -> 43200 minutes
-    with pytest.raises(GuardrailViolation, match="exceeds max 30d"):
-        guard.validate("index=main earliest=-999999m | stats count")
+    guard = _guard()  # shipped max_time_range_days -> bounded minutes
+    with pytest.raises(GuardrailViolation, match=f"exceeds max {_SHIPPED_CONFIG['max_time_range_days']}d"):
+        guard.validate("index=main earliest=-999999999m | stats count")
 
 
 def test_bounded_minutes_allowed():
@@ -60,6 +62,6 @@ def test_bounded_minutes_allowed():
 
 
 def test_unbounded_seconds_blocked():
-    guard = _guard()  # 30d max -> 2_592_000 seconds
-    with pytest.raises(GuardrailViolation, match="exceeds max 30d"):
+    guard = _guard()  # shipped max_time_range_days -> bounded seconds
+    with pytest.raises(GuardrailViolation, match=f"exceeds max {_SHIPPED_CONFIG['max_time_range_days']}d"):
         guard.validate("index=main earliest=-9999999999s | stats count")

@@ -26,3 +26,27 @@ resource_heavy_patterns:
     reason: "delete command not allowed"
   - pattern: '\|\s*outputlookup\b'
     reason: "outputlookup not allowed via agent"
+  - pattern: '\|\s*script\b'
+    reason: "script command not allowed — arbitrary execution"
+  - pattern: '\|\s*runshell\b'
+    reason: "runshell command not allowed — shell execution"
+  - pattern: '\|\s*sendemail\b'
+    reason: "sendemail not allowed via agent — outbound exfiltration risk"
+  - pattern: '\|\s*rest\b'
+    reason: "rest command not allowed via agent — reaches internal management endpoints"
+  - pattern: '\|\s*sendalert\b'
+    reason: "sendalert not allowed via agent — outbound side effect"
+  - pattern: '\|\s*dbxquery\b'
+    reason: "dbxquery not allowed via agent — arbitrary SQL against an external DB"
+  - pattern: '\|\s*map\b'
+    reason: "map not allowed via agent — runs an arbitrary subsearch per input row"
+  - pattern: '\|\s*(mcollect|meventcollect)\b'
+    reason: "mcollect/meventcollect not allowed via agent — writes to a metrics index"
+  - pattern: '\|\s*outputcsv\b'
+    reason: "outputcsv not allowed via agent — writes to the search head filesystem"
+  - pattern: '\|\s*tscollect\b'
+    reason: "tscollect not allowed via agent — writes a tsidx summary"
+  - pattern: '\|\s*loadjob\b'
+    reason: "loadjob not allowed via agent — loads another user's search results"
+  - pattern: '\|\s*savedsearch\b'
+    reason: "savedsearch not allowed via agent — may run with different, broader permissions"

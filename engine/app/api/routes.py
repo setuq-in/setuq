@@ -27,8 +27,12 @@ _bearer = HTTPBearer(auto_error=False)
 
 
 def _get_api_key() -> str:
-    # Reads from env at call time so tests can override
-    return os.environ.get("API_KEY", "")
+    # Re-reads Settings (env + .env) at call time so tests can override, and so
+    # this sees exactly what _validate_startup_config's fail-closed check saw —
+    # a .env-only API_KEY must not silently disable auth here (split-brain).
+    from app.config import Settings
+
+    return Settings().API_KEY
 
 
 def _ip_rate_limit() -> str:
@@ -223,6 +227,10 @@ async def query(
         raise HTTPException(status_code=422, detail=f"Guardrail violation: {e.reason}")
     except ConnectionError as e:
         raise HTTPException(status_code=502, detail=str(e))
+    except HTTPException:
+        # Re-raise 429 (session rate limit) / 499 (client disconnect) raised
+        # above instead of letting the bare except below rewrite them to 500.
+        raise
     except Exception as e:
         _logger = logging.getLogger("setuq.api")
         _logger.exception("Unhandled error in /query: %s", e)
