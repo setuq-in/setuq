@@ -10,7 +10,7 @@ from app.api.rate_limiter import limiter, check_session_rate_limit
 from app.api.schemas import (
     QueryRequest, QueryResponse, QueryMetadata, ActionSuggestionSchema,
     InvestigationStepSchema, PlanSchema, AnomalySchema, PatternSchema,
-    AnalysisSchema, DecisionSchema, ErrorResponse, HealthResponse,
+    AnalysisSchema, DecisionSchema, HealthResponse,
     SplunkChartExport, ChartExportRequest,
     ChartFromSessionRequest, ChartFromSessionResponse,
 )
@@ -25,10 +25,16 @@ router = APIRouter(prefix="/api")
 
 _bearer = HTTPBearer(auto_error=False)
 
+_logger = logging.getLogger("setuq.api")
+
 
 def _get_api_key() -> str:
-    # Reads from env at call time so tests can override
-    return os.environ.get("API_KEY", "")
+    # Re-reads Settings (env + .env) at call time so tests can override, and so
+    # this sees exactly what _validate_startup_config's fail-closed check saw —
+    # a .env-only API_KEY must not silently disable auth here (split-brain).
+    from app.config import Settings
+
+    return Settings().API_KEY
 
 
 def _ip_rate_limit() -> str:
@@ -43,6 +49,18 @@ def _session_rate_limit() -> int:
         return int(raw.split("/", 1)[0])
     except (ValueError, IndexError):
         return 10
+
+
+async def _enforce_session_rate_limit(session_id: str | None) -> None:
+    """Raise 429 when the session's per-minute cap is exceeded. No-op without a session."""
+    if not session_id:
+        return
+    if not await check_session_rate_limit(session_id, limit=_session_rate_limit()):
+        raise HTTPException(
+            status_code=429,
+            detail="Session rate limit exceeded",
+            headers={"Retry-After": "60"},
+        )
 
 
 def verify_api_key(
@@ -115,14 +133,7 @@ async def query(
     _: None = Depends(verify_api_key),
 ):
     try:
-        if body.session_id:
-            allowed = await check_session_rate_limit(body.session_id, limit=_session_rate_limit())
-            if not allowed:
-                raise HTTPException(
-                    status_code=429,
-                    detail="Session rate limit exceeded",
-                    headers={"Retry-After": "60"},
-                )
+        await _enforce_session_rate_limit(body.session_id)
 
         task = asyncio.ensure_future(
             orchestrator.run(body.query, session_id=body.session_id)
@@ -150,7 +161,6 @@ async def query(
             allow = request.headers.get("X-Allow-Auto-Execute", "").lower()
             if allow != "true":
                 recommendation = "suggest"
-                _logger = logging.getLogger("setuq.api")
                 _logger.warning(
                     "auto_execute recommendation downgraded to suggest — "
                     "client did not send X-Allow-Auto-Execute: true"
@@ -223,8 +233,11 @@ async def query(
         raise HTTPException(status_code=422, detail=f"Guardrail violation: {e.reason}")
     except ConnectionError as e:
         raise HTTPException(status_code=502, detail=str(e))
+    except HTTPException:
+        # Re-raise 429 (session rate limit) / 499 (client disconnect) raised
+        # above instead of letting the bare except below rewrite them to 500.
+        raise
     except Exception as e:
-        _logger = logging.getLogger("setuq.api")
         _logger.exception("Unhandled error in /query: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")
 
@@ -272,14 +285,7 @@ async def query_stream(
     _: None = Depends(verify_api_key),
 ):
     """SSE endpoint — emits per-step progress then full result."""
-    if session_id:
-        allowed = await check_session_rate_limit(session_id, limit=_session_rate_limit())
-        if not allowed:
-            raise HTTPException(
-                status_code=429,
-                detail="Session rate limit exceeded",
-                headers={"Retry-After": "60"},
-            )
+    await _enforce_session_rate_limit(session_id)
 
     step_queue: asyncio.Queue = asyncio.Queue(maxsize=64)
 
@@ -296,7 +302,6 @@ async def query_stream(
             await step_queue.put({"step": "error", "detail": f"Guardrail: {e.reason}"})
         except Exception as e:
             await step_queue.put({"step": "error", "detail": "Internal error"})
-            _logger = logging.getLogger("setuq.api")
             _logger.exception("SSE stream error: %s", e)
         finally:
             await step_queue.put(None)  # sentinel
@@ -331,13 +336,9 @@ async def query_stream(
 
 
 @router.get("/health", response_model=HealthResponse)
+@router.get("/health/live", response_model=HealthResponse)
 async def health():
     """Liveness: process is up. Never touches dependencies."""
-    return HealthResponse(status="ok")
-
-
-@router.get("/health/live", response_model=HealthResponse)
-async def health_live():
     return HealthResponse(status="ok")
 
 

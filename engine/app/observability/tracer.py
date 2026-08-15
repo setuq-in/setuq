@@ -21,25 +21,25 @@ class _CircuitBreakingExporter(SpanExporter):
         self._failures = 0
         self._open = False
 
+    def _record_failure(self) -> None:
+        self._failures += 1
+        if self._failures >= self._threshold:
+            self._open = True
+            _logger.warning("OTel exporter circuit open after %d failures — spans dropped", self._threshold)
+
     def export(self, spans):
         if self._open:
             return SpanExportResult.SUCCESS
         try:
             result = self._wrapped.export(spans)
-            if result == SpanExportResult.SUCCESS:
-                self._failures = 0
-            else:
-                self._failures += 1
-                if self._failures >= self._threshold:
-                    self._open = True
-                    _logger.warning("OTel exporter circuit open after %d failures — spans dropped", self._threshold)
-            return result
         except Exception:
-            self._failures += 1
-            if self._failures >= self._threshold:
-                self._open = True
-                _logger.warning("OTel exporter circuit open after %d failures — spans dropped", self._threshold)
+            self._record_failure()
             return SpanExportResult.FAILURE
+        if result == SpanExportResult.SUCCESS:
+            self._failures = 0
+        else:
+            self._record_failure()
+        return result
 
     def shutdown(self):
         self._wrapped.shutdown()

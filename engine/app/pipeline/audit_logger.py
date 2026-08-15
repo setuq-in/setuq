@@ -111,8 +111,8 @@ class AuditLogger:
                     loop.run_in_executor(self._lf_executor, self._send_langfuse_event, entry),
                     timeout=5.0,
                 )
-            except (asyncio.TimeoutError, Exception):
-                pass
+            except Exception:
+                pass  # never let a Langfuse hiccup kill the worker
 
     def _send_langfuse_event(self, entry: AuditEntry) -> None:
         try:

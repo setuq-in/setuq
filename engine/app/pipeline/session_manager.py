@@ -25,6 +25,22 @@ _SESSION_TTL_SECONDS = 3600
 _CLEANUP_INTERVAL_SECONDS = 300
 
 
+def turns_to_messages(turns: list[ConversationTurn]) -> list[dict]:
+    """Render conversation turns as LLM chat messages (shared by both session stores)."""
+    messages: list[dict] = []
+    for turn in turns:
+        messages.append({"role": "user", "content": turn.query})
+        messages.append({
+            "role": "assistant",
+            "content": (
+                f"SPL: {turn.spl}\n"
+                f"Results: {turn.result_count} events\n"
+                f"Summary: {turn.summary}"
+            ),
+        })
+    return messages
+
+
 class SessionManager:
     def __init__(self, max_turns: int = 10, max_sessions: int = 1000):
         self._sessions: dict[str, ConversationSession] = {}
@@ -110,15 +126,4 @@ class SessionManager:
             if session is None:
                 return []
             turns_snapshot = list(session.turns)
-        messages = []
-        for turn in turns_snapshot:
-            messages.append({"role": "user", "content": turn.query})
-            messages.append({
-                "role": "assistant",
-                "content": (
-                    f"SPL: {turn.spl}\n"
-                    f"Results: {turn.result_count} events\n"
-                    f"Summary: {turn.summary}"
-                ),
-            })
-        return messages
+        return turns_to_messages(turns_snapshot)

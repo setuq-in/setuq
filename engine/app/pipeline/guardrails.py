@@ -1,3 +1,4 @@
+import fnmatch
 import logging
 import re
 from dataclasses import dataclass
@@ -31,19 +32,6 @@ class GuardrailResult:
     passed: bool
     violations: list[str]
 
-
-# Patterns considered resource-heavy or unsafe. Denylist of commands the agent
-# must never emit — code execution, outbound side effects, and destructive ops.
-_RESOURCE_HEAVY_PATTERNS = [
-    (r"\|\s*join\b(?![^|]*\b(?:max|overwrite)\s*=)", "Unbounded join — add max= or use stats instead"),
-    (r"\|\s*collect\b(?!.*index=)", "collect without target index"),
-    (r"\|\s*delete\b", "delete command not allowed"),
-    (r"\|\s*outputlookup\b", "outputlookup not allowed via agent"),
-    (r"\|\s*script\b", "script command not allowed — arbitrary code execution"),
-    (r"\|\s*runshell\b", "runshell command not allowed — shell execution"),
-    (r"\|\s*sendemail\b", "sendemail not allowed via agent — outbound side effect"),
-    (r"\|\s*rest\b", "rest command not allowed via agent — can reach internal endpoints"),
-]
 
 # Default max time range in days (overridable per-instance)
 MAX_TIME_RANGE_DAYS = 30
@@ -118,19 +106,40 @@ class QueryGuardrail:
         violations.extend(self._check_index(spl))
         violations.extend(self._check_time_range(spl))
         violations.extend(self._check_resource_heavy(spl))
+        violations.extend(self._check_join_max(spl))
 
         result = GuardrailResult(passed=len(violations) == 0, violations=violations)
         if not result.passed:
             for v in violations:
-                if "time range" in v.lower() or "earliest" in v.lower():
+                vl = v.lower()
+                if "earliest" in vl or "latest" in vl or "time range" in vl:
                     rule = "time_range"
-                elif "index" in v.lower():
+                elif "index" in vl:
                     rule = "index"
                 else:
                     rule = "resource_heavy"
                 _violation_counter.add(1, {"rule": rule})
             raise GuardrailViolation("; ".join(result.violations))
         return result
+
+    def _validate_index_token(self, raw: str) -> str | None:
+        idx_clean = raw.strip('"').strip("'").strip()
+        if not idx_clean:
+            return None
+        if idx_clean == "*":
+            return "Wildcard index '*' too broad — specify an index"
+        if "*" in idx_clean:
+            # Partial wildcard (e.g. sec*) is allowed only if it actually
+            # resolves against the known schema — an arbitrary glob that
+            # matches nothing is not a legitimate narrowing, it's a probe.
+            if self._known_indexes and not any(
+                fnmatch.fnmatchcase(k, idx_clean) for k in self._known_indexes
+            ):
+                return f"Wildcard index '{idx_clean}' matches no known index"
+            return None
+        if idx_clean not in self._known_indexes:
+            return f"Unknown index '{idx_clean}' — not in schema"
+        return None
 
     def _check_index(self, spl: str) -> list[str]:
         if not self._known_indexes:
@@ -146,44 +155,69 @@ class QueryGuardrail:
                 continue
             # Stop at subsearch/paren boundaries so `[search index=x]` yields "x".
             for match in re.findall(r"index\s*=\s*([^\s\]\)]+)", stripped):
-                idx_clean = match.strip('"').strip("'").strip()
-                if not idx_clean:
-                    continue
-                if idx_clean == "*":
-                    violations.append("Wildcard index '*' too broad — specify an index")
-                    continue
-                if "*" in idx_clean:
-                    continue  # partial wildcard (e.g. sec*) — allowed
-                if idx_clean not in self._known_indexes:
-                    violations.append(f"Unknown index '{idx_clean}' — not in schema")
+                v = self._validate_index_token(match)
+                if v:
+                    violations.append(v)
+            # `index IN (a, b, c)` bypasses the index= regex above entirely.
+            for group in re.findall(r"index\s+in\s*\(([^)]*)\)", stripped, re.IGNORECASE):
+                for token in group.split(","):
+                    v = self._validate_index_token(token)
+                    if v:
+                        violations.append(v)
         return violations
 
-    def _check_time_range(self, spl: str) -> list[str]:
-        has_earliest = bool(re.search(r"earliest\s*=", spl, re.IGNORECASE))
-        if not has_earliest:
-            return ["No time range specified — add earliest= to bound the query"]
+    @staticmethod
+    def _find_unquoted_values(spl: str, keyword: str) -> list[str]:
+        """Raw values for `keyword=...` occurrences that start outside any
+        quoted string, so e.g. `eval note="earliest=-1d"` can't spoof the
+        time-range check — and every occurrence is returned, not just the
+        first, so a bound in a subsearch can't hide an unbound outer range."""
+        values: list[str] = []
+        in_squote = in_dquote = False
+        kw_re = re.compile(re.escape(keyword) + r"\s*=\s*", re.IGNORECASE)
+        i, n = 0, len(spl)
+        while i < n:
+            ch = spl[i]
+            if ch == "'" and not in_dquote:
+                in_squote = not in_squote
+                i += 1
+                continue
+            if ch == '"' and not in_squote:
+                in_dquote = not in_dquote
+                i += 1
+                continue
+            if not in_squote and not in_dquote:
+                m = kw_re.match(spl, i)
+                if m:
+                    vm = re.match(r'"([^"]*)"|\'([^\']*)\'|([^\s|\]\)]+)', spl[m.end():])
+                    if vm:
+                        values.append(next(g for g in vm.groups() if g is not None))
+                        i = m.end() + vm.end()
+                        continue
+            i += 1
+        return values
 
-        # Extract earliest value
-        match = re.search(r"earliest\s*=\s*([^\s|]+)", spl, re.IGNORECASE)
-        if not match:
-            return []
-        val = match.group(1).strip("\"'")
+    def _validate_time_value(self, val: str, field: str) -> str | None:
+        val = val.strip("\"'")
+
+        if field == "latest" and val.lower() == "now":
+            return None
 
         # Block all-time / epoch zero
         if val in ("0", "1", "epoch"):
-            return ["earliest=0 not allowed — use a relative time range"]
+            return f"{field}={val} not allowed — use a relative time range"
 
         # Block snap-relative like @d-30d (too complex to bound safely)
         if "@" in val:
-            return ["Snap-relative time (@) not allowed — use -Nd or -Nh format"]
+            return f"Snap-relative time ({field} @) not allowed — use -Nd or -Nh format"
 
         # Check days: -Nd
         m_days = re.match(r"^-?(\d+)d$", val, re.IGNORECASE)
         if m_days:
             days = int(m_days.group(1))
             if days > self._max_time_range_days:
-                return [f"Time range {days}d exceeds max {self._max_time_range_days}d"]
-            return []
+                return f"{field} range {days}d exceeds max {self._max_time_range_days}d"
+            return None
 
         # Check hours: -Nh
         m_hours = re.match(r"^-?(\d+)h$", val, re.IGNORECASE)
@@ -191,8 +225,8 @@ class QueryGuardrail:
             hours = int(m_hours.group(1))
             max_hours = self._max_time_range_days * 24
             if hours > max_hours:
-                return [f"Time range {hours}h exceeds max {max_hours}h"]
-            return []
+                return f"{field} range {hours}h exceeds max {max_hours}h"
+            return None
 
         # Months/weeks/quarters are disallowed; minutes/seconds are allowed but
         # must still be bounded by the same max window (so -999999m can't slip by).
@@ -201,19 +235,48 @@ class QueryGuardrail:
             amount = int(m_other.group(1))
             unit = m_other.group(2).lower()
             if unit in ("mon", "w", "q"):
-                return [f"Time unit '{unit}' not allowed — use -Nd or -Nh"]
+                return f"Time unit '{unit}' not allowed — use -Nd or -Nh"
             minutes = amount if unit == "m" else amount / 60.0  # 'm' minutes, 's' seconds
             max_minutes = self._max_time_range_days * 24 * 60
             if minutes > max_minutes:
-                return [f"Time range {val} exceeds max {self._max_time_range_days}d"]
-            return []
+                return f"{field} range {val} exceeds max {self._max_time_range_days}d"
+            return None
 
         # Unknown format — reject for safety
-        return [f"Unrecognized earliest= format '{val}' — use -Nd or -Nh"]
+        return f"Unrecognized {field}= format '{val}' — use -Nd or -Nh"
+
+    def _check_time_range(self, spl: str) -> list[str]:
+        earliest_values = self._find_unquoted_values(spl, "earliest")
+        if not earliest_values:
+            return ["No time range specified — add earliest= to bound the query"]
+
+        violations = [
+            v for val in earliest_values
+            if (v := self._validate_time_value(val, "earliest")) is not None
+        ]
+        for val in self._find_unquoted_values(spl, "latest"):
+            v = self._validate_time_value(val, "latest")
+            if v is not None:
+                violations.append(v)
+        return violations
 
     def _check_resource_heavy(self, spl: str) -> list[str]:
         violations = []
         for pattern, reason in self._resource_heavy_patterns:
             if re.search(pattern, spl, re.IGNORECASE | re.DOTALL):
                 violations.append(reason)
+        return violations
+
+    _JOIN_MAX_LIMIT = 50_000
+    _JOIN_MAX_RE = re.compile(r"\|\s*join\b[^|]*\bmax\s*=\s*(\d+)", re.IGNORECASE)
+
+    def _check_join_max(self, spl: str) -> list[str]:
+        """The resource-heavy `join` pattern only checks that `max=` is
+        *present* — a hallucinated `max=999999999` satisfies it while still
+        being unbounded in practice. Bound the value itself."""
+        violations = []
+        for m in self._JOIN_MAX_RE.finditer(spl):
+            n = int(m.group(1))
+            if n > self._JOIN_MAX_LIMIT:
+                violations.append(f"join max={n} exceeds safe bound ({self._JOIN_MAX_LIMIT})")
         return violations

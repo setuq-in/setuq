@@ -21,6 +21,8 @@ graphify-out/**
 .agent/**
 .DS_Store
 .venv*
+.serena/
+CLAUDE*.md
 # Env files
 .env
 *.env
