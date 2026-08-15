@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from opentelemetry import trace as otel_trace
 from app.observability import get_tracer, hash_query
 from app.observability import langfuse_tracing
-from app.llm.harness import init_run_budget, reset_run_budget, BudgetExceeded, get_run_budget_usage
+from app.llm.harness import init_run_budget, reset_run_budget, get_run_budget_usage
 from app.pipeline.action_suggester import ActionSuggester, ActionSuggestion
 from app.pipeline.analysis_agent import AnalysisAgent, AnalysisResult
 from app.api.schemas import ChartSpec
@@ -17,6 +17,7 @@ from app.pipeline.chart_inferer import ChartInferer
 from app.pipeline.decision_engine import DecisionEngine, Decision
 from app.pipeline.guardrails import QueryGuardrail, GuardrailViolation
 from app.pipeline.planner import PlannerAgent, InvestigationPlan
+from app.pipeline.prompt_registry import all_versions as prompt_versions
 from app.pipeline.relevance import RelevanceGate, IrrelevantQueryError, NOT_APPLICABLE_MESSAGE
 from app.pipeline.schema_manager import SchemaManager
 from app.pipeline.session_manager import SessionManager, ConversationTurn
@@ -25,6 +26,19 @@ from app.pipeline.splunk_client import SplunkClient
 from app.pipeline.summarizer import Summarizer
 
 logger = logging.getLogger(__name__)
+
+# Per-run LLM budget shared by run() and run_streaming().
+_MAX_TOKENS_PER_RUN = 50_000
+_MAX_COST_USD_PER_RUN = 0.50
+
+
+def _reraise_first_real_error(eg: BaseExceptionGroup) -> None:
+    """Unwrap a TaskGroup ExceptionGroup: re-raise the first non-cancellation
+    error so callers see the original exception type (guardrail, LLM, …)."""
+    for exc in eg.exceptions:
+        if not isinstance(exc, asyncio.CancelledError):
+            raise exc from eg
+    raise eg.exceptions[0]
 
 
 class _TTLCache:
@@ -52,9 +66,6 @@ class _TTLCache:
         self._data[key] = (value, time.time())
         while len(self._data) > self._maxsize:
             self._data.popitem(last=False)
-
-    def delete(self, key) -> None:
-        self._data.pop(key, None)
 
 
 @dataclass
@@ -191,14 +202,7 @@ class PipelineOrchestrator:
             if cached is not None:
                 return cached
 
-        budget_token = init_run_budget(
-            max_tokens=50_000,
-            max_cost_usd=0.50,
-        )
-        try:
-            result = await self._run_inner(query=query, session_id=session_id, on_step=None)
-        finally:
-            reset_run_budget(budget_token)
+        result = await self._run_within_budget(query, session_id, on_step=None)
 
         if idem_key is not None:
             self._idem_cache.set(idem_key, result)
@@ -216,14 +220,18 @@ class PipelineOrchestrator:
             if step_queue is not None:
                 await step_queue.put({"step": step, **data})
 
-        budget_token = init_run_budget(max_tokens=50_000, max_cost_usd=0.50)
+        return await self._run_within_budget(query, session_id, on_step=_on_step)
+
+    async def _run_within_budget(self, query: str, session_id: str | None, on_step) -> PipelineResult:
+        """Run the pipeline with a fresh per-run token/cost budget in context."""
+        budget_token = init_run_budget(
+            max_tokens=_MAX_TOKENS_PER_RUN,
+            max_cost_usd=_MAX_COST_USD_PER_RUN,
+        )
         try:
-            result = await self._run_inner(
-                query=query, session_id=session_id, on_step=_on_step
-            )
+            return await self._run_inner(query=query, session_id=session_id, on_step=on_step)
         finally:
             reset_run_budget(budget_token)
-        return result
 
     async def rechart(self, session_id: str, chart_type: str | None = None) -> list:
         """Re-chart the session's last results without running a new query.
@@ -259,8 +267,7 @@ class PipelineOrchestrator:
         with tracer.start_as_current_span("pipeline.run") as span:
             span.set_attribute("session_id", session_id or "")
             span.set_attribute("query.hash", hash_query(query))
-            from app.pipeline.prompt_registry import all_versions as _prompt_versions
-            for pname, phash in _prompt_versions().items():
+            for pname, phash in prompt_versions().items():
                 span.set_attribute(f"prompt.version.{pname}", phash)
 
             # Load or create session
@@ -319,33 +326,29 @@ class PipelineOrchestrator:
                             self._spl_generator.generate_spl(query=query, schema_context=schema_context, history=history)
                         )
                 except* Exception as eg:
-                    for _e in eg.exceptions:
-                        if not isinstance(_e, asyncio.CancelledError):
-                            raise _e from eg
-                    raise eg.exceptions[0]
+                    _reraise_first_real_error(eg)
                 plan = plan_t.result()
-                from app.pipeline.spl_generator import SPLResult as _SPLResult
-                spl_result = _SPLResult(spl=spl_t.result(), explanation="")
-            logger.info("SPL generated needs_plan=%s spl=%r", plan.needs_plan, spl_result.spl)
+                spl = spl_t.result()
+            logger.info("SPL generated needs_plan=%s spl=%r", plan.needs_plan, spl)
 
-            await _emit("spl", {"spl": spl_result.spl, "explanation": spl_result.explanation})
+            await _emit("spl", {"spl": spl, "explanation": ""})
 
             await _emit("guardrail")
             # Step 4: Validate against guardrails
             with tracer.start_as_current_span("pipeline.guardrail") as guardrail_span:
                 try:
-                    self._guardrail.validate(spl_result.spl)
+                    self._guardrail.validate(spl)
                 except GuardrailViolation as e:
                     guardrail_violations = e.reason.split("; ")
                     logger.warning(
                         "Guardrail violation for query=%r spl=%r reason=%s",
-                        query, spl_result.spl, e.reason,
+                        query, spl, e.reason,
                     )
                     guardrail_span.set_status(otel_trace.StatusCode.ERROR, e.reason)
                     guardrail_span.set_attribute("guardrail.violations", ", ".join(guardrail_violations))
                     self._trigger_reactive_schema_refresh(guardrail_violations)
                     raise
-            logger.debug("guardrail passed spl=%r", spl_result.spl)
+            logger.debug("guardrail passed spl=%r", spl)
 
             await _emit("executing")
             # Step 5: Execute Splunk + generate explanation concurrently
@@ -354,19 +357,15 @@ class PipelineOrchestrator:
                 try:
                     async with asyncio.TaskGroup() as tg:
                         execute_t = tg.create_task(
-                            self._splunk_client.execute_spl(spl_result.spl)
+                            self._splunk_client.execute_spl(spl)
                         )
                         explain_t = tg.create_task(
-                            self._spl_generator.explain(spl_result.spl)
+                            self._spl_generator.explain(spl)
                         )
                 except* Exception as eg:
-                    for _e in eg.exceptions:
-                        if not isinstance(_e, asyncio.CancelledError):
-                            raise _e from eg
-                    raise eg.exceptions[0]
+                    _reraise_first_real_error(eg)
                 results = execute_t.result()
-                from app.pipeline.spl_generator import SPLResult as _SPLResult
-                spl_result = _SPLResult(spl=spl_result.spl, explanation=explain_t.result())
+                explanation = explain_t.result()
             logger.info(
                 "splunk execute complete result_count=%d elapsed_ms=%d",
                 len(results), int((time.time() - start_time) * 1000),
@@ -378,16 +377,13 @@ class PipelineOrchestrator:
                 try:
                     async with asyncio.TaskGroup() as tg:
                         sum_t = tg.create_task(
-                            self._summarizer.summarize(query=query, spl=spl_result.spl, results=results, history=history)
+                            self._summarizer.summarize(query=query, spl=spl, results=results, history=history)
                         )
                         ana_t = tg.create_task(
-                            self._analysis_agent.analyze(query=query, spl=spl_result.spl, results=results)
+                            self._analysis_agent.analyze(query=query, spl=spl, results=results)
                         )
                 except* Exception as eg:
-                    for _e in eg.exceptions:
-                        if not isinstance(_e, asyncio.CancelledError):
-                            raise _e from eg
-                    raise eg.exceptions[0]
+                    _reraise_first_real_error(eg)
                 summary, analysis = sum_t.result(), ana_t.result()
             logger.debug(
                 "analysis complete anomalies=%d patterns=%d",
@@ -398,7 +394,7 @@ class PipelineOrchestrator:
             # Step 8: Suggest actions (needs summary)
             with tracer.start_as_current_span("pipeline.suggest_actions"):
                 actions = await self._action_suggester.suggest(
-                    query=query, spl=spl_result.spl, results=results, summary=summary
+                    query=query, spl=spl, results=results, summary=summary
                 )
 
             # Step 9: Decision engine (needs summary + analysis + actions)
@@ -420,14 +416,14 @@ class PipelineOrchestrator:
             )
 
             # Cache rows so the user can re-chart them later without re-querying.
-            self._last_results.set(session_id, {"spl": spl_result.spl, "rows": results})
+            self._last_results.set(session_id, {"spl": spl, "rows": results})
 
             # Chart inference (best-effort; never breaks the response). May return
             # multiple specs when the user asks for several chart types.
             chart_specs: list = []
             if self._chart_inferer is not None:
                 try:
-                    chart_specs = await self._chart_inferer.infer_all(spl_result.spl, results, query=query)
+                    chart_specs = await self._chart_inferer.infer_all(spl, results, query=query)
                     if chart_specs:
                         logger.info(
                             "charts inferred count=%d types=%s",
@@ -443,7 +439,7 @@ class PipelineOrchestrator:
             # Step 10: Save turn to session
             await self._session_manager.append_turn(
                 session_id,
-                ConversationTurn(query=query, spl=spl_result.spl, result_count=len(results), summary=summary),
+                ConversationTurn(query=query, spl=spl, result_count=len(results), summary=summary),
             )
 
             elapsed_ms = int((time.time() - start_time) * 1000)
@@ -469,10 +465,10 @@ class PipelineOrchestrator:
                 timestamp=time.time(),
                 session_id=session_id,
                 query=query,
-                spl=spl_result.spl,
+                spl=spl,
                 result_count=len(results),
                 execution_time_ms=elapsed_ms,
-                spl_explanation=spl_result.explanation,
+                spl_explanation=explanation,
                 actions_suggested=[
                     {"action": a.action, "target": a.target, "risk_level": a.risk_level}
                     for a in actions
@@ -485,8 +481,8 @@ class PipelineOrchestrator:
 
             return PipelineResult(
                 query=query,
-                spl=spl_result.spl,
-                spl_explanation=spl_result.explanation,
+                spl=spl,
+                spl_explanation=explanation,
                 results=results,
                 summary=summary,
                 plan=plan,

@@ -1,5 +1,8 @@
 import re
+
 from app.api.schemas import ChartSpec
+from app.llm.base import LLMProvider
+from app.pipeline.llm_utils import parse_llm_json
 
 ROW_CAP = 1000
 
@@ -185,10 +188,6 @@ def infer_heuristic(spl: str, rows: list[dict]) -> ChartSpec | None:
         )
 
     return None
-
-
-from app.llm.base import LLMProvider
-from app.pipeline.llm_utils import parse_llm_json
 
 
 # Explicit chart-type requests in the user's natural-language query. Ordered:

@@ -34,11 +34,10 @@ class SplunkClient:
             try:
                 return await self._execute_spl_once(spl)
             except _RETRYABLE_EXCEPTIONS as exc:
+                # Everything else (job failures, HTTP status errors) propagates as-is.
                 last_exception = exc
                 if attempt < MAX_RETRIES:
                     await _async_sleep(BACKOFF_BASE * (2 ** (attempt - 1)))
-            except (RuntimeError, httpx.HTTPStatusError):
-                raise
 
         raise ConnectionError(
             f"Cannot reach Splunk at {self.base_url} after {MAX_RETRIES} attempts"
@@ -50,9 +49,7 @@ class SplunkClient:
         with tracer.start_as_current_span("splunk.execute") as span:
             start = time.time()
 
-            clean_spl = spl.strip()
-            if re.match(r"^search\s+", clean_spl, re.IGNORECASE):
-                clean_spl = re.sub(r"^search\s+", "", clean_spl, count=1, flags=re.IGNORECASE)
+            clean_spl = re.sub(r"^search\s+", "", spl.strip(), count=1, flags=re.IGNORECASE)
 
             response = await self._client.post(
                 "/services/search/jobs",

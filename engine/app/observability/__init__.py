@@ -1,38 +1,24 @@
-def __getattr__(name):
-    """Lazy load observability modules to avoid import errors when dependencies are not installed."""
-    if name == "init_tracer":
-        from app.observability.tracer import init_tracer
-        return init_tracer
-    elif name == "get_tracer":
-        from app.observability.tracer import get_tracer
-        return get_tracer
-    elif name == "init_langfuse":
-        from app.observability.langfuse_client import init_langfuse
-        return init_langfuse
-    elif name == "get_langfuse":
-        from app.observability.langfuse_client import get_langfuse
-        return get_langfuse
-    elif name == "configure_logging":
-        from app.observability.logging_setup import configure_logging
-        return configure_logging
-    elif name == "trace_step":
-        from app.observability.decorators import trace_step
-        return trace_step
-    elif name == "trace_llm":
-        from app.observability.decorators import trace_llm
-        return trace_llm
-    elif name == "hash_query":
-        from app.observability.redact import hash_query
-        return hash_query
-    elif name == "scrub_dict":
-        from app.observability.redact import scrub_dict
-        return scrub_dict
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+import importlib
 
-__all__ = [
-    "init_tracer", "get_tracer",
-    "init_langfuse", "get_langfuse",
-    "configure_logging",
-    "trace_step", "trace_llm",
-    "hash_query", "scrub_dict",
-]
+# Attribute -> defining module. Imported lazily so a missing optional
+# observability dependency never breaks importing this package.
+_LAZY_ATTRS = {
+    "init_tracer": "app.observability.tracer",
+    "get_tracer": "app.observability.tracer",
+    "init_langfuse": "app.observability.langfuse_client",
+    "get_langfuse": "app.observability.langfuse_client",
+    "configure_logging": "app.observability.logging_setup",
+    "trace_step": "app.observability.decorators",
+    "trace_llm": "app.observability.decorators",
+    "hash_query": "app.observability.redact",
+    "scrub_dict": "app.observability.redact",
+}
+
+__all__ = list(_LAZY_ATTRS)
+
+
+def __getattr__(name):
+    module = _LAZY_ATTRS.get(name)
+    if module is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    return getattr(importlib.import_module(module), name)

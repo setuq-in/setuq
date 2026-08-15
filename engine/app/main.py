@@ -80,7 +80,6 @@ async def lifespan(app: FastAPI):
     # Structured ECS logging first so every startup line — including the
     # config-validation warnings below — is captured.
     configure_logging(settings)
-    _log = logging.getLogger("setuq.main")
     _log.info(
         "engine starting provider=%s model=%s obs_enabled=%s redis=%s",
         settings.LLM_PROVIDER, settings.LLM_MODEL,
@@ -130,7 +129,7 @@ async def lifespan(app: FastAPI):
     # time. Fail-closed: a missing/incomplete file aborts startup.
     n_prompts = prompt_registry.load(settings.PROMPTS_CONFIG_PATH)
     prompt_registry.ensure_complete()
-    logging.getLogger("setuq.main").info("Loaded %d prompt(s) from %s", n_prompts, settings.PROMPTS_CONFIG_PATH)
+    _log.info("Loaded %d prompt(s) from %s", n_prompts, settings.PROMPTS_CONFIG_PATH)
     spl_generator = SPLGenerator(llm=llm)
     summarizer = Summarizer(llm=llm)
     action_suggester = ActionSuggester(llm=llm)

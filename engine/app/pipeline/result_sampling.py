@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 
 def sample_for_llm(rows: list[dict], k: int = 60) -> tuple[list[dict], dict]:
     """Return a stratified (head+mid+tail) sample of `rows` capped at k entries.
@@ -29,3 +31,17 @@ def sample_for_llm(rows: list[dict], k: int = 60) -> tuple[list[dict], dict]:
     fields = sorted({f for r in rows[:200] for f in r.keys()})
     sketch: dict = {"total_rows": n, "sampled": len(sample), "fields": fields}
     return sample, sketch
+
+
+def format_results_for_llm(rows: list[dict], k: int, empty_text: str = "No results.") -> str:
+    """Render a sampled result set as prompt text, noting truncation when it applies."""
+    sample, sketch = sample_for_llm(rows, k=k) if rows else ([], {})
+    if not sample:
+        return empty_text
+    results_str = json.dumps(sample, indent=2)
+    if sketch.get("total_rows", 0) > len(sample):
+        results_str += (
+            f"\n\n(Showing {sketch['sampled']} of {sketch['total_rows']} total rows. "
+            f"Fields seen: {', '.join(sketch['fields'])})"
+        )
+    return results_str
