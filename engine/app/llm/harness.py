@@ -1,8 +1,12 @@
 from __future__ import annotations
 import asyncio
 import contextvars
+import importlib
 import random
+import time
 from dataclasses import dataclass
+
+import httpx
 
 from app.llm.base import LLMProvider, LLMResponse, LLMUsage
 
@@ -57,45 +61,43 @@ def get_run_budget_usage() -> tuple[int, float]:
     return (b.used_tokens, b.used_cost_usd)
 
 
+def _sdk_errors(module_name: str, *names: str) -> tuple[type[BaseException], ...]:
+    """Exception classes from an optional provider SDK; () when it isn't installed."""
+    try:
+        module = importlib.import_module(module_name)
+    except ImportError:
+        return ()
+    return tuple(getattr(module, name) for name in names if hasattr(module, name))
+
+
+_RETRYABLE_ERRORS = (
+    httpx.ConnectError, httpx.ReadTimeout, httpx.WriteTimeout,
+    *_sdk_errors("openai", "RateLimitError"),
+    *_sdk_errors("anthropic", "RateLimitError"),
+)
+
+_AUTH_ERRORS = (
+    *_sdk_errors("anthropic", "AuthenticationError", "PermissionDeniedError"),
+    *_sdk_errors("openai", "AuthenticationError", "PermissionDeniedError"),
+)
+
+
+def _backoff_seconds(attempt: int) -> float:
+    """Exponential backoff with jitter, in seconds (attempt is 1-based)."""
+    return 2 ** (attempt - 1) * (0.5 + random.random())
+
+
 def _is_retryable(exc: BaseException) -> bool:
-    import httpx
-    if isinstance(exc, (httpx.ConnectError, httpx.ReadTimeout, httpx.WriteTimeout)):
-        return True
     if isinstance(exc, httpx.HTTPStatusError):
         code = exc.response.status_code
         return code == 429 or 500 <= code < 600
-    try:
-        import openai
-        if isinstance(exc, openai.RateLimitError):
-            return True
-    except ImportError:
-        pass
-    try:
-        import anthropic
-        if isinstance(exc, anthropic.RateLimitError):
-            return True
-    except ImportError:
-        pass
-    return False
+    return isinstance(exc, _RETRYABLE_ERRORS)
 
 
 def _is_auth_or_quota(exc: BaseException) -> bool:
-    import httpx
     if isinstance(exc, httpx.HTTPStatusError):
         return exc.response.status_code in (401, 402, 403)
-    try:
-        import anthropic
-        if isinstance(exc, (anthropic.AuthenticationError, anthropic.PermissionDeniedError)):
-            return True
-    except ImportError:
-        pass
-    try:
-        import openai
-        if isinstance(exc, (openai.AuthenticationError, openai.PermissionDeniedError)):
-            return True
-    except ImportError:
-        pass
-    return False
+    return isinstance(exc, _AUTH_ERRORS)
 
 
 class CircuitOpen(Exception):
@@ -119,8 +121,7 @@ class _AuthCircuit:
     def check(self) -> None:
         if self.opened_at is None:
             return
-        import time as _time
-        if _time.monotonic() - self.opened_at >= self.open_seconds:
+        if time.monotonic() - self.opened_at >= self.open_seconds:
             # Half-open: allow one probe through by clearing opened_at
             self.opened_at = None
             return
@@ -135,8 +136,7 @@ class _AuthCircuit:
     def record_auth_failure(self) -> None:
         self.consecutive_failures += 1
         if self.consecutive_failures >= self.threshold:
-            import time as _time
-            self.opened_at = _time.monotonic()
+            self.opened_at = time.monotonic()
 
 
 class HarnessedProvider(LLMProvider):
@@ -179,7 +179,7 @@ class HarnessedProvider(LLMProvider):
                 last_exc = exc
                 if attempt == self._max_retries:
                     break
-                await asyncio.sleep(2 ** (attempt - 1) * (0.5 + random.random()))
+                await asyncio.sleep(_backoff_seconds(attempt))
             except Exception as exc:
                 last_exc = exc
                 if _is_auth_or_quota(exc):
@@ -187,7 +187,7 @@ class HarnessedProvider(LLMProvider):
                     raise
                 if not _is_retryable(exc) or attempt == self._max_retries:
                     raise
-                await asyncio.sleep(2 ** (attempt - 1) * (0.5 + random.random()))
+                await asyncio.sleep(_backoff_seconds(attempt))
         raise RuntimeError(
             f"LLM generate failed after {self._max_retries} attempts"
         ) from last_exc

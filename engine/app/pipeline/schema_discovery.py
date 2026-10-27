@@ -66,13 +66,10 @@ class SchemaCache:
             return None
 
     def is_stale(self, ttl_hours: float = 24.0) -> bool:
-        with self._conn() as conn:
-            row = conn.execute(
-                "SELECT captured_at FROM schema_cache WHERE id=1"
-            ).fetchone()
-        if row is None:
+        captured_at = self.captured_at()
+        if captured_at is None:
             return True
-        return (time.time() - row[0]) > (ttl_hours * 3600)
+        return (time.time() - captured_at) > (ttl_hours * 3600)
 
     def captured_at(self) -> float | None:
         with self._conn() as conn:

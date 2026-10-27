@@ -15,7 +15,7 @@ _session_lock = asyncio.Lock()
 
 
 def set_limiter_enabled(enabled: bool) -> None:
-    limiter._enabled = enabled  # type: ignore[attr-defined]
+    limiter.enabled = enabled
 
 
 async def check_session_rate_limit(session_id: str, limit: int, window_seconds: int = 60) -> bool:

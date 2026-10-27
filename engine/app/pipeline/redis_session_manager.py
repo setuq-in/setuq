@@ -3,7 +3,12 @@ import json
 import logging
 import time
 import uuid
-from app.pipeline.session_manager import ConversationSession, ConversationTurn
+from app.pipeline.session_manager import (
+    ConversationSession,
+    ConversationTurn,
+    SessionManager,
+    turns_to_messages,
+)
 
 _logger = logging.getLogger("setuq.redis_session")
 
@@ -36,12 +41,14 @@ class RedisSessionManager:
     # Public API
     # ------------------------------------------------------------------
 
+    async def _load(self, session_id: str) -> ConversationSession | None:
+        raw = await self._redis.get(_session_key(session_id))
+        return self._deserialize(json.loads(raw)) if raw else None
+
     async def get_or_create(self, session_id: str | None) -> tuple[str, ConversationSession]:
         if session_id:
-            raw = await self._redis.get(_session_key(session_id))
-            if raw:
-                data = json.loads(raw)
-                session = self._deserialize(data)
+            session = await self._load(session_id)
+            if session is not None:
                 session.last_active = time.time()
                 await self._save(session)
                 return session_id, session
@@ -51,11 +58,9 @@ class RedisSessionManager:
         return new_id, session
 
     async def append_turn(self, session_id: str, turn: ConversationTurn) -> None:
-        raw = await self._redis.get(_session_key(session_id))
-        if not raw:
+        session = await self._load(session_id)
+        if session is None:
             return
-        data = json.loads(raw)
-        session = self._deserialize(data)
         session.turns.append(turn)
         if len(session.turns) > self._max_turns:
             session.turns = session.turns[-self._max_turns:]
@@ -63,22 +68,10 @@ class RedisSessionManager:
         await self._save(session)
 
     async def build_history_messages(self, session_id: str) -> list[dict]:
-        raw = await self._redis.get(_session_key(session_id))
-        if not raw:
+        session = await self._load(session_id)
+        if session is None:
             return []
-        session = self._deserialize(json.loads(raw))
-        messages = []
-        for turn in session.turns:
-            messages.append({"role": "user", "content": turn.query})
-            messages.append({
-                "role": "assistant",
-                "content": (
-                    f"SPL: {turn.spl}\n"
-                    f"Results: {turn.result_count} events\n"
-                    f"Summary: {turn.summary}"
-                ),
-            })
-        return messages
+        return turns_to_messages(session.turns)
 
     # ------------------------------------------------------------------
     # Serialization
@@ -153,5 +146,4 @@ def create_session_manager(settings, max_turns: int = 10):
         except Exception as exc:
             _logger.warning("Cache backend unavailable (%s) — falling back to in-memory sessions", exc)
 
-    from app.pipeline.session_manager import SessionManager
     return SessionManager(max_turns=max_turns)

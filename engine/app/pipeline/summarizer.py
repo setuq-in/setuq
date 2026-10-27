@@ -1,7 +1,6 @@
-import json
 from app.llm.base import LLMProvider
 from app.pipeline import prompt_registry
-from app.pipeline.result_sampling import sample_for_llm
+from app.pipeline.result_sampling import format_results_for_llm
 
 
 class Summarizer:
@@ -10,10 +9,7 @@ class Summarizer:
 
     async def summarize(self, query: str, spl: str, results: list[dict], history: list[dict] | None = None) -> str:
         """Summarize query results in natural language."""
-        sample, sketch = sample_for_llm(results, k=60) if results else ([], {})
-        results_str = json.dumps(sample, indent=2) if sample else "No results returned."
-        if sketch.get("total_rows", 0) > len(sample):
-            results_str += f"\n\n(Showing {sketch['sampled']} of {sketch['total_rows']} total rows. Fields seen: {', '.join(sketch['fields'])})"
+        results_str = format_results_for_llm(results, k=60, empty_text="No results returned.")
 
         user_prompt = f"""Original question: {query}
 

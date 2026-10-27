@@ -1,10 +1,9 @@
-import json
 from dataclasses import dataclass
 from pydantic import BaseModel, Field, model_validator
 from app.llm.base import LLMProvider
 from app.pipeline import prompt_registry
 from app.pipeline.llm_utils import generate_validated, LLMOutputValidationError
-from app.pipeline.result_sampling import sample_for_llm
+from app.pipeline.result_sampling import format_results_for_llm
 
 
 class _ActionItemSchema(BaseModel):
@@ -47,10 +46,7 @@ class ActionSuggester:
         summary: str,
     ) -> list[ActionSuggestion]:
         """Analyze query results and suggest security actions."""
-        sample, sketch = sample_for_llm(results, k=50) if results else ([], {})
-        results_str = json.dumps(sample, indent=2) if sample else "No results."
-        if sketch.get("total_rows", 0) > len(sample):
-            results_str += f"\n\n(Showing {sketch['sampled']} of {sketch['total_rows']} total rows. Fields seen: {', '.join(sketch['fields'])})"
+        results_str = format_results_for_llm(results, k=50)
 
         user_prompt = f"""Original question: {query}
 

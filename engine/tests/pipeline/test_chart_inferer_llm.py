@@ -1,4 +1,5 @@
 import pytest
+from app.llm.base import LLMResponse
 from app.api.schemas import ChartSpec
 from app.pipeline.chart_inferer import (
     ChartInferer, detect_requested_chart_type, detect_requested_chart_types,
@@ -10,9 +11,9 @@ class StubLLM:
         self.response = response
         self.called = False
 
-    async def generate(self, system_prompt: str, history: list, user_prompt: str) -> str:
+    async def generate(self, system_prompt: str, history: list, user_prompt: str) -> LLMResponse:
         self.called = True
-        return self.response
+        return LLMResponse(content=self.response)
 
 
 @pytest.mark.asyncio

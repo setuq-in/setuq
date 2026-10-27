@@ -1,5 +1,5 @@
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pydantic import BaseModel, Field
 from app.llm.base import LLMProvider
 from app.pipeline import prompt_registry
