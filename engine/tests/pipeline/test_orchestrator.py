@@ -15,6 +15,7 @@ from app.pipeline.splunk_client import SplunkClient
 from app.pipeline.summarizer import Summarizer
 from app.pipeline.schema_manager import SchemaManager
 from app.pipeline.session_manager import SessionManager
+from app.pipeline.spl_confidence import SPLConfidenceScorer
 from app.llm.base import LLMProvider, LLMResponse, LLMUsage
 
 
@@ -219,3 +220,26 @@ async def test_reactive_refresh_triggered_for_all_unknown_indexes(tmp_path):
 
     assert "alpha_index" in refreshed, "alpha_index refresh not triggered"
     assert "beta_index" in refreshed, "beta_index refresh not triggered"
+
+
+@pytest.mark.asyncio
+async def test_spl_confidence_none_when_scorer_absent(orchestrator):
+    result = await orchestrator.run("Show me total revenue by store")
+    assert result.spl_confidence is None
+
+
+@pytest.mark.asyncio
+async def test_spl_confidence_populated_when_scorer_wired(tmp_path):
+    class _ScoreLLM(MockLLM):
+        async def generate(self, system_prompt, history, user_prompt):
+            if "rate how well a generated Splunk SPL" in system_prompt:
+                from app.llm.base import LLMResponse
+                return LLMResponse(content='{"confidence": 0.73, "reasoning": "ok"}',
+                                   usage=_mock_usage())
+            return await super().generate(system_prompt, history, user_prompt)
+
+    llm = _ScoreLLM()
+    orch = _build_orchestrator(tmp_path, llm=llm)
+    orch._spl_confidence_scorer = SPLConfidenceScorer(llm=llm)
+    result = await orch.run("Show me total revenue by store")
+    assert result.spl_confidence == pytest.approx(0.73)

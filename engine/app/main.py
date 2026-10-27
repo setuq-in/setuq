@@ -29,6 +29,7 @@ from app.pipeline import prompt_registry
 from app.pipeline.schema_manager import SchemaManager
 from app.pipeline.redis_session_manager import create_session_manager
 from app.pipeline.spl_generator import SPLGenerator
+from app.pipeline.spl_confidence import SPLConfidenceScorer
 from app.pipeline.splunk_client import SplunkClient
 from app.pipeline.summarizer import Summarizer
 from app.pipeline.orchestrator import PipelineOrchestrator
@@ -137,6 +138,7 @@ async def lifespan(app: FastAPI):
     planner = PlannerAgent(llm=llm)
     analysis_agent = AnalysisAgent(llm=llm)
     decision_engine = DecisionEngine(llm=llm)
+    spl_confidence_scorer = SPLConfidenceScorer(llm=llm)
     relevance_gate = RelevanceGate(
         llm=llm,
         schema_manager=_schema_manager,
@@ -172,6 +174,7 @@ async def lifespan(app: FastAPI):
         decision_engine=decision_engine,
         relevance_gate=relevance_gate,
         chart_inferer=chart_inferer,
+        spl_confidence_scorer=spl_confidence_scorer,
     )
 
     app.dependency_overrides[get_orchestrator] = lambda: _orchestrator

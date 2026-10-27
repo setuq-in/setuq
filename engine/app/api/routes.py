@@ -205,6 +205,7 @@ async def query(
             session_id=result.session_id,
             chart_spec=result.chart_spec,
             chart_specs=result.chart_specs,
+            spl_confidence=result.spl_confidence,
         )
     except IrrelevantQueryError as e:
         # Off-topic query — the agent workflow never ran. Return 200 with a

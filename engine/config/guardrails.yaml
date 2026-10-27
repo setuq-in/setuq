@@ -20,8 +20,10 @@ max_time_range_days: 90
 resource_heavy_patterns:
   - pattern: '\|\s*join\b(?![^|]*\b(?:max|overwrite)\s*=)'
     reason: "Unbounded join — add max= or use stats instead"
-  - pattern: '\|\s*collect\b(?!.*index=)'
-    reason: "collect without target index"
+  - pattern: '\|\s*collect\b'
+    reason: "collect / summary-index write not allowed via agent"
+  - pattern: '\|\s*si(stats|chart|timechart|top|rare)\b'
+    reason: "summary-indexing command (si*) not allowed via agent"
   - pattern: '\|\s*delete\b'
     reason: "delete command not allowed"
   - pattern: '\|\s*outputlookup\b'

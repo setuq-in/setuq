@@ -19,6 +19,7 @@ REQUIRED_PROMPTS: frozenset[str] = frozenset(
         "analysis_agent",
         "planner",
         "decision_engine",
+        "spl_confidence",
     }
 )
 

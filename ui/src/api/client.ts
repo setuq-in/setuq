@@ -92,6 +92,7 @@ export interface QueryResponse {
   session_id: string;
   chart_spec: ChartSpec | null;
   chart_specs?: ChartSpec[];
+  spl_confidence: number | null;
 }
 
 export interface ChartFromSessionResponse {
