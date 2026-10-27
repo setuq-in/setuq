@@ -130,10 +130,31 @@ def test_join_with_overwrite_passes(guardrail):
     assert result.passed
 
 
-def test_collect_with_index_passes(guardrail):
-    spl = 'index=main earliest=-1d | collect index=summary_index'
-    result = guardrail.validate(spl)
-    assert result.passed
+@pytest.mark.parametrize("spl", [
+    'index=main earliest=-1d | collect index=summary',
+    'index=main earliest=-1d | sistats count by host',
+    'index=main earliest=-1d | sichart count',
+    'index=main earliest=-1d | sitimechart count',
+    'index=main earliest=-1d | sitop src_ip',
+    'index=main earliest=-1d | sirare src_ip',
+])
+def test_summary_index_commands_blocked(guardrail, spl):
+    with pytest.raises(GuardrailViolation):
+        guardrail.validate(spl)
+
+
+@pytest.mark.parametrize("spl", [
+    'index=main earliest=-1d | delete',
+    'index=main earliest=-1d | outputlookup exfil.csv',
+])
+def test_delete_and_outputlookup_still_blocked(guardrail, spl):
+    with pytest.raises(GuardrailViolation):
+        guardrail.validate(spl)
+
+
+def test_readonly_query_still_passes(guardrail):
+    spl = 'index=main earliest=-1d | stats count by host'
+    assert guardrail.validate(spl).passed
 
 
 # --- Multiple violations ---
@@ -194,7 +215,7 @@ def test_one_over_max_days_raises(guardrail):
 
 def test_collect_without_index_raises(guardrail):
     spl = 'index=main earliest=-1d | collect'
-    with pytest.raises(GuardrailViolation, match="collect without target index"):
+    with pytest.raises(GuardrailViolation, match="collect / summary-index write not allowed"):
         guardrail.validate(spl)
 
 

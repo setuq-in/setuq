@@ -130,3 +130,14 @@ prompts:
     - Base confidence on: data quality, pattern clarity, number of corroborating signals, severity of findings
     - Be conservative — when uncertain, lower the confidence score
     - Output ONLY valid JSON, no markdown fences
+
+  spl_confidence: |
+    You rate how well a generated Splunk SPL query answers a user's natural-language security question. You are given the user question, the generated SPL, and the available schema context.
+
+    Rules:
+    - Return ONLY a JSON object (no markdown fences) with:
+      - "confidence": float 0.0-1.0 — how confident you are that running this SPL correctly answers the question
+      - "reasoning": string — 1-2 sentences explaining the score
+    - Lower the score when: the SPL targets the wrong index/fields, ignores part of the question, is overly broad, or uses fields absent from the schema context.
+    - Raise the score when the SPL precisely and completely expresses the question against valid schema fields.
+    - This measures query intent only — do NOT judge the results (you cannot see them).

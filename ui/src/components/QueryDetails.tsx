@@ -125,6 +125,11 @@ export function QueryDetails({ data, onSelectAction }: QueryDetailsProps) {
         <div className="flex items-center gap-2 text-xs font-mono text-splunk-text-muted">
           <Terminal size={14} className="text-splunk-mint" />
           <span>GENERATED SPL</span>
+          <span className="px-1.5 py-0.5 rounded border border-splunk-border text-splunk-mint">
+            SPL match {data.spl_confidence === null || data.spl_confidence === undefined
+              ? 'n/a'
+              : `${Math.round(data.spl_confidence * 100)}%`}
+          </span>
         </div>
         <div className="flex gap-2">
           <button
