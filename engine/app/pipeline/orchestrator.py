@@ -376,14 +376,13 @@ class PipelineOrchestrator:
                             # Do NOT wrap this in a bare `except Exception`.
                             confidence_t = tg.create_task(
                                 self._spl_confidence_scorer.score(
-                                    query=query, spl=spl_result.spl, schema_context=schema_context
+                                    query=query, spl=spl, schema_context=schema_context
                                 )
                             )
                 except* Exception as eg:
                     _reraise_first_real_error(eg)
                 results = execute_t.result()
-                from app.pipeline.spl_generator import SPLResult as _SPLResult
-                spl_result = _SPLResult(spl=spl_result.spl, explanation=explain_t.result())
+                explanation = explain_t.result()
                 spl_confidence = confidence_t.result() if confidence_t is not None else None
             logger.info(
                 "splunk execute complete result_count=%d elapsed_ms=%d",
